@@ -1,0 +1,14 @@
+{
+  "routes": [
+    {
+      "src": "^/api/(.*)$"
+    },
+    {
+      "src": "^/v1/chat/completions$"
+    },
+    {
+      "src": "^/v1/models$"
+    }
+  ],
+  "middleware": null
+}
