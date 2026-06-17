@@ -36,3 +36,19 @@ Thumbs.db
 .codex
 .edgeone
 /.edgeone/
+
+# Screenshots and images
+*.png
+*.jpg
+*.jpeg
+*.gif
+qa-screenshots/
+
+# Development docs (keep only essential docs)
+*SUMMARY*.md
+*TODO*.md
+*IMPROVEMENTS*.md
+*COMPLETION*.md
+*DARK_MODE*.md
+*FEATURE_SUGGESTIONS*.md
+*USER_REQUIREMENTS*.md
