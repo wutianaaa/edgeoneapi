@@ -271,7 +271,6 @@ API Key 认证
 
 ## 🤝 贡献
 
-欢迎贡献！请查看 [贡献指南](./CONTRIBUTING.md)（如果有）。
 - [Linux do 社区](https://linux.do/)
 
 ## 📄 许可证
