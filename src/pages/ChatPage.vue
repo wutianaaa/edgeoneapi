@@ -1,40 +1,33 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import {
   ArrowUp,
   Copy,
   Download,
   MessageSquare,
-  Moon,
   Plus,
   RefreshCw,
-  Settings,
-  Sliders,
   Sparkles,
   Square,
-  Sun,
-  Trash2,
-  X
+  Trash2
 } from "@lucide/vue";
 import MarkdownIt from "markdown-it";
 import { chatRequest, listPublicModels } from "../services/api.js";
 
 const CHAT_SESSIONS_KEY = "aiapi_chat_sessions";
 const CURRENT_SESSION_KEY = "aiapi_chat_current_session";
-const THEME_KEY = "aiapi_theme";
-
-defineProps({
-  embedded: {
-    type: Boolean,
-    default: false
-  }
-});
 
 const markdown = new MarkdownIt({
   html: false,
   linkify: true,
   breaks: true
 });
+
+const starterPrompts = [
+  "给我一份这个网关项目的接口巡检清单。",
+  "把当前聊天页的布局问题拆成 3 个可执行改进方向。",
+  "解释如何给一个上游模型通道做健康监控。"
+];
 
 const defaultLinkOpen = markdown.renderer.rules.link_open || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
 markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
@@ -45,7 +38,7 @@ markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 };
 
 const model = ref(localStorage.getItem("aiapi_chat_model") || "gpt-4o-mini");
-const stream = ref(true);
+const stream = ref(localStorage.getItem("aiapi_chat_stream") !== "false");
 const draft = ref("");
 const sending = ref(false);
 const loadingModels = ref(false);
@@ -55,54 +48,27 @@ const sessions = ref([]);
 const currentSessionId = ref("");
 const availableModels = ref([]);
 const conversationRef = ref(null);
+const composerRef = ref(null);
 const expandedThinking = ref({});
 const abortController = ref(null);
-const showSettings = ref(false);
-const theme = ref(localStorage.getItem(THEME_KEY) || "light");
 
 const temperature = ref(numberFromStorage("aiapi_temperature", 0.7, 0, 2));
 const maxTokens = ref(numberFromStorage("aiapi_max_tokens", null, 1, 32000));
 const topP = ref(numberFromStorage("aiapi_top_p", 1, 0, 1));
 
-function toggleTheme() {
-  theme.value = theme.value === "light" ? "dark" : "light";
-  localStorage.setItem(THEME_KEY, theme.value);
-  applyTheme();
-}
-
-function applyTheme() {
-  if (theme.value === "dark") {
-    document.documentElement.classList.add("dark");
-  } else {
-    document.documentElement.classList.remove("dark");
-  }
-}
-
-function toggleSettings() {
-  showSettings.value = !showSettings.value;
-}
-
-function updateTemperature(value) {
-  temperature.value = clampNumber(value, 0, 2, 0.7);
-  localStorage.setItem("aiapi_temperature", String(temperature.value));
-}
-
-function updateMaxTokens(value) {
-  if (value === "" || value === null || value === undefined) {
-    maxTokens.value = null;
-    localStorage.removeItem("aiapi_max_tokens");
-  } else {
-    maxTokens.value = Math.round(clampNumber(value, 1, 32000, null));
-    if (maxTokens.value !== null) {
-      localStorage.setItem("aiapi_max_tokens", String(maxTokens.value));
+const activeSessionTitle = computed(() => activeSession()?.title || "新会话");
+const sessionCount = computed(() => sessions.value.length);
+const messageCount = computed(() => messages.value.length);
+const assistantReplyCount = computed(() => messages.value.filter((item) => item.role === "assistant" && !item.pending).length);
+const lastLatency = computed(() => {
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    const item = messages.value[index];
+    if (item?.role === "assistant" && item.stats?.total_ms != null) {
+      return item.stats.total_ms;
     }
   }
-}
-
-function updateTopP(value) {
-  topP.value = clampNumber(value, 0, 1, 1);
-  localStorage.setItem("aiapi_top_p", String(topP.value));
-}
+  return null;
+});
 
 function numberFromStorage(key, fallback, min, max) {
   const saved = localStorage.getItem(key);
@@ -118,72 +84,222 @@ function clampNumber(value, min, max, fallback) {
   return Math.min(max, Math.max(min, number));
 }
 
-async function exportChat(format) {
-  const session = activeSession();
-  if (!session || !session.messages.length) {
-    error.value = "没有可导出的对话内容。";
+function updateTemperature(value) {
+  temperature.value = clampNumber(value, 0, 2, 0.7);
+  localStorage.setItem("aiapi_temperature", String(temperature.value));
+}
+
+function updateMaxTokens(value) {
+  if (value === "" || value === null || value === undefined) {
+    maxTokens.value = null;
+    localStorage.removeItem("aiapi_max_tokens");
     return;
   }
 
+  maxTokens.value = Math.round(clampNumber(value, 1, 32000, null));
+  if (maxTokens.value !== null) {
+    localStorage.setItem("aiapi_max_tokens", String(maxTokens.value));
+  }
+}
+
+function updateTopP(value) {
+  topP.value = clampNumber(value, 0, 1, 1);
+  localStorage.setItem("aiapi_top_p", String(topP.value));
+}
+
+function toggleStream() {
+  stream.value = !stream.value;
+  localStorage.setItem("aiapi_chat_stream", String(stream.value));
+}
+
+function createSession() {
+  const now = Date.now();
+  return {
+    id: `chat_${now}_${Math.random().toString(36).slice(2, 8)}`,
+    title: "新会话",
+    messages: [],
+    created_at: now,
+    updated_at: now
+  };
+}
+
+function emptyStats() {
+  return {
+    first_token_ms: null,
+    total_ms: null
+  };
+}
+
+function normalizeStats(stats) {
+  if (!stats || typeof stats !== "object") return emptyStats();
+  return {
+    first_token_ms: numberOrNull(stats.first_token_ms),
+    total_ms: numberOrNull(stats.total_ms)
+  };
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function cloneMessages(items) {
+  return items
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      role: item.role === "user" ? "user" : "assistant",
+      content: String(item.content || ""),
+      reasoning: String(item.reasoning || ""),
+      pending: item.role !== "user" && item.pending === true,
+      stats: normalizeStats(item.stats)
+    }));
+}
+
+function titleFromMessages(items) {
+  const firstUserMessage = items.find((item) => item.role === "user" && item.content.trim());
+  if (!firstUserMessage) return "新会话";
+  const title = firstUserMessage.content.trim().replace(/\s+/g, " ");
+  return title.length > 28 ? `${title.slice(0, 28)}...` : title;
+}
+
+function normalizeSession(item, index) {
+  if (!item || typeof item !== "object") return null;
+  const now = Date.now();
+  const normalizedMessages = Array.isArray(item.messages) ? cloneMessages(item.messages) : [];
+  return {
+    id: String(item.id || `chat_${now}_${index}`),
+    title: String(item.title || titleFromMessages(normalizedMessages)),
+    messages: normalizedMessages,
+    created_at: Number(item.created_at || now),
+    updated_at: Number(item.updated_at || now)
+  };
+}
+
+function readSavedSessions() {
   try {
-    let content = "";
-    const filename = `chat-${session.id}-${Date.now()}.${format}`;
+    const parsed = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeSession).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
-    if (format === "json") {
-      content = JSON.stringify({
-        session_id: session.id,
-        title: session.title,
-        created_at: new Date(session.created_at).toISOString(),
-        updated_at: new Date(session.updated_at).toISOString(),
-        messages: session.messages
-      }, null, 2);
-    } else if (format === "md") {
-      content = `# ${session.title}\n\n`;
-      content += `**Created:** ${new Date(session.created_at).toLocaleString()}\n\n`;
-      content += `---\n\n`;
+function activeSession() {
+  return sessions.value.find((item) => item.id === currentSessionId.value);
+}
 
-      for (const msg of session.messages) {
-        const role = msg.role === "user" ? "User" : "Assistant";
-        const thinking = msg.role === "assistant" ? splitThinking(msg) : { reasoning: "", answer: msg.content };
-        content += `## ${role}\n\n`;
+function saveSessions() {
+  localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions.value));
+  localStorage.setItem(CURRENT_SESSION_KEY, currentSessionId.value);
+}
 
-        if (msg.role === "assistant" && thinking.reasoning) {
-          content += `<details>\n<summary>Thinking Process</summary>\n\n${thinking.reasoning}\n\n</details>\n\n`;
-        }
+function persistCurrentMessages() {
+  const session = activeSession();
+  if (!session) return;
 
-        content += `${msg.role === "assistant" ? thinking.answer : msg.content}\n\n`;
+  session.messages = cloneMessages(messages.value);
+  session.title = titleFromMessages(session.messages);
+  session.updated_at = Date.now();
+  sessions.value = [
+    session,
+    ...sessions.value.filter((item) => item.id !== session.id)
+  ];
+  saveSessions();
+}
 
-        if (msg.stats?.first_token_ms || msg.stats?.total_ms) {
-          content += `*Stats: First token ${formatDuration(msg.stats.first_token_ms)}, Total ${formatDuration(msg.stats.total_ms)}*\n\n`;
-        }
+function loadSessions() {
+  const saved = readSavedSessions();
+  sessions.value = saved.length ? saved : [createSession()];
 
-        content += `---\n\n`;
-      }
+  const savedCurrentId = localStorage.getItem(CURRENT_SESSION_KEY);
+  currentSessionId.value = sessions.value.some((item) => item.id === savedCurrentId)
+    ? savedCurrentId
+    : sessions.value[0].id;
+
+  messages.value = cloneMessages(activeSession()?.messages || []);
+  saveSessions();
+  scrollToBottom();
+}
+
+function startNewSession() {
+  if (sending.value) return;
+  const session = createSession();
+  sessions.value = [session, ...sessions.value];
+  currentSessionId.value = session.id;
+  messages.value = [];
+  draft.value = "";
+  error.value = "";
+  saveSessions();
+  scrollToBottom();
+  focusComposer();
+}
+
+function switchSession(id) {
+  if (sending.value || id === currentSessionId.value) return;
+  currentSessionId.value = id;
+  messages.value = cloneMessages(activeSession()?.messages || []);
+  expandedThinking.value = {};
+  draft.value = "";
+  error.value = "";
+  saveSessions();
+  scrollToBottom();
+}
+
+function clearCurrentSession() {
+  if (sending.value) return;
+  messages.value = [];
+  expandedThinking.value = {};
+  draft.value = "";
+  error.value = "";
+  persistCurrentMessages();
+  focusComposer();
+}
+
+function useStarterPrompt(prompt) {
+  draft.value = prompt;
+  focusComposer();
+}
+
+function focusComposer() {
+  nextTick(() => {
+    composerRef.value?.focus();
+  });
+}
+
+async function loadModels() {
+  loadingModels.value = true;
+  error.value = "";
+
+  try {
+    const body = await listPublicModels();
+    availableModels.value = (body.data || []).map((item) => item.id).filter(Boolean);
+    if (availableModels.value.length && !availableModels.value.includes(model.value)) {
+      model.value = availableModels.value[0];
+      localStorage.setItem("aiapi_chat_model", model.value);
     }
-
-    const blob = new Blob([content], { type: format === "json" ? "application/json" : "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-    error.value = "";
   } catch (cause) {
-    error.value = `导出失败: ${cause.message}`;
+    error.value = cause.message;
+  } finally {
+    loadingModels.value = false;
   }
 }
 
-function stopGeneration() {
-  if (abortController.value) {
-    abortController.value.abort();
-  }
+function createAssistantMessage() {
+  return { role: "assistant", content: "", reasoning: "", pending: true, stats: emptyStats() };
 }
 
-function handleWindowKeydown(event) {
-  if (event.key === "Escape" && showSettings.value) {
-    showSettings.value = false;
-  }
+function elapsedMs(startedAt) {
+  return Math.max(1, Date.now() - startedAt);
+}
+
+function buildPayloadMessages(items) {
+  return items
+    .map((item) => ({
+      role: item.role,
+      content: item.role === "assistant" ? splitThinking(item).answer : item.content
+    }))
+    .filter((item) => item.content);
 }
 
 async function sendMessage() {
@@ -217,7 +333,6 @@ async function requestAssistant(assistantIndex, contextMessages) {
       top_p: topP.value
     };
 
-    // 只有设置了 max_tokens 才包含在请求中
     if (maxTokens.value !== null && maxTokens.value !== undefined) {
       payload.max_tokens = maxTokens.value;
     }
@@ -240,8 +355,8 @@ async function requestAssistant(assistantIndex, contextMessages) {
     if (cause.name === "AbortError") {
       const current = messages.value[assistantIndex];
       const stoppedContent = current?.content
-        ? `${current.content}\n\n[已停止]`
-        : "[已停止]";
+        ? `${current.content}\n\n[已停止生成]`
+        : "[已停止生成]";
       updateAssistant(assistantIndex, stoppedContent, { total_ms: elapsedMs(startedAt) });
     } else {
       updateAssistant(assistantIndex, "", { total_ms: elapsedMs(startedAt) });
@@ -253,15 +368,6 @@ async function requestAssistant(assistantIndex, contextMessages) {
     abortController.value = null;
     persistCurrentMessages();
   }
-}
-
-function buildPayloadMessages(items) {
-  return items
-    .map((item) => ({
-      role: item.role,
-      content: item.role === "assistant" ? splitThinking(item).answer : item.content
-    }))
-    .filter((item) => item.content);
 }
 
 async function regenerateAssistant(index) {
@@ -283,152 +389,8 @@ async function regenerateAssistant(index) {
   await requestAssistant(index, contextMessages);
 }
 
-async function copyMessage(content) {
-  if (!content) return;
-  try {
-    await navigator.clipboard.writeText(content);
-  } catch {
-    error.value = "复制失败，请手动选择内容复制。";
-  }
-}
-
-function createSession() {
-  const now = Date.now();
-  return {
-    id: `chat_${now}_${Math.random().toString(36).slice(2, 8)}`,
-    title: "新会话",
-    messages: [],
-    created_at: now,
-    updated_at: now
-  };
-}
-
-function loadSessions() {
-  const saved = readSavedSessions();
-  sessions.value = saved.length ? saved : [createSession()];
-
-  const savedCurrentId = localStorage.getItem(CURRENT_SESSION_KEY);
-  currentSessionId.value = sessions.value.some((item) => item.id === savedCurrentId)
-    ? savedCurrentId
-    : sessions.value[0].id;
-
-  messages.value = cloneMessages(activeSession()?.messages || []);
-  saveSessions();
-  scrollToBottom();
-}
-
-function readSavedSessions() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeSession).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-function normalizeSession(item, index) {
-  if (!item || typeof item !== "object") return null;
-  const now = Date.now();
-  const messages = Array.isArray(item.messages) ? cloneMessages(item.messages) : [];
-  return {
-    id: String(item.id || `chat_${now}_${index}`),
-    title: String(item.title || titleFromMessages(messages)),
-    messages,
-    created_at: Number(item.created_at || now),
-    updated_at: Number(item.updated_at || now)
-  };
-}
-
-function activeSession() {
-  return sessions.value.find((item) => item.id === currentSessionId.value);
-}
-
-function saveSessions() {
-  localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions.value));
-  localStorage.setItem(CURRENT_SESSION_KEY, currentSessionId.value);
-}
-
-function persistCurrentMessages() {
-  const session = activeSession();
-  if (!session) return;
-  session.messages = cloneMessages(messages.value);
-  session.title = titleFromMessages(session.messages);
-  session.updated_at = Date.now();
-  sessions.value = [
-    session,
-    ...sessions.value.filter((item) => item.id !== session.id)
-  ];
-  saveSessions();
-}
-
-function cloneMessages(items) {
-  return items
-    .filter((item) => item && typeof item === "object")
-    .map((item) => ({
-      role: item.role === "user" ? "user" : "assistant",
-      content: String(item.content || ""),
-      reasoning: String(item.reasoning || ""),
-      pending: item.role !== "user" && item.pending === true,
-      stats: normalizeStats(item.stats)
-    }));
-}
-
-function titleFromMessages(items) {
-  const firstUserMessage = items.find((item) => item.role === "user" && item.content.trim());
-  if (!firstUserMessage) return "新会话";
-  const title = firstUserMessage.content.trim().replace(/\s+/g, " ");
-  return title.length > 24 ? `${title.slice(0, 24)}...` : title;
-}
-
-function startNewSession() {
-  if (sending.value) return;
-  const session = createSession();
-  sessions.value = [session, ...sessions.value];
-  currentSessionId.value = session.id;
-  messages.value = [];
-  draft.value = "";
-  error.value = "";
-  saveSessions();
-  scrollToBottom();
-}
-
-function switchSession(id) {
-  if (sending.value || id === currentSessionId.value) return;
-  currentSessionId.value = id;
-  messages.value = cloneMessages(activeSession()?.messages || []);
-  expandedThinking.value = {};
-  draft.value = "";
-  error.value = "";
-  saveSessions();
-  scrollToBottom();
-}
-
-function clearCurrentSession() {
-  if (sending.value) return;
-  messages.value = [];
-  expandedThinking.value = {};
-  draft.value = "";
-  error.value = "";
-  persistCurrentMessages();
-}
-
-async function loadModels() {
-  loadingModels.value = true;
-  error.value = "";
-
-  try {
-    const body = await listPublicModels();
-    availableModels.value = (body.data || []).map((item) => item.id).filter(Boolean);
-    if (availableModels.value.length && !availableModels.value.includes(model.value)) {
-      model.value = availableModels.value[0];
-      localStorage.setItem("aiapi_chat_model", model.value);
-    }
-  } catch (cause) {
-    error.value = cause.message;
-  } finally {
-    loadingModels.value = false;
-  }
+function isEventStream(response) {
+  return (response.headers.get("content-type") || "").toLowerCase().includes("text/event-stream");
 }
 
 async function readStream(response, assistantIndex, startedAt) {
@@ -463,10 +425,6 @@ async function readStream(response, assistantIndex, startedAt) {
   }
 
   finishAssistantTiming(assistantIndex, startedAt);
-}
-
-function isEventStream(response) {
-  return (response.headers.get("content-type") || "").toLowerCase().includes("text/event-stream");
 }
 
 function extractDeltaText(chunk) {
@@ -530,57 +488,75 @@ function finishAssistantTiming(index, startedAt) {
   scrollToBottom();
 }
 
-function createAssistantMessage() {
-  return { role: "assistant", content: "", reasoning: "", pending: true, stats: emptyStats() };
-}
-
-function emptyStats() {
-  return {
-    first_token_ms: null,
-    total_ms: null
-  };
-}
-
-function normalizeStats(stats) {
-  if (!stats || typeof stats !== "object") return emptyStats();
-  return {
-    first_token_ms: numberOrNull(stats.first_token_ms),
-    total_ms: numberOrNull(stats.total_ms)
-  };
-}
-
-function numberOrNull(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function elapsedMs(startedAt) {
-  return Math.max(1, Date.now() - startedAt);
-}
-
-function formatDuration(ms) {
-  if (ms == null) return "--";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)}s`;
-}
-
-async function scrollToBottom() {
-  await nextTick();
-  const el = conversationRef.value;
-  if (el) {
-    el.scrollTop = el.scrollHeight;
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
+function stopGeneration() {
+  if (abortController.value) {
+    abortController.value.abort();
   }
 }
 
-function roleLabel(role) {
-  return role === "user" ? "用户" : "助手";
+async function copyMessage(content) {
+  if (!content) return;
+  try {
+    await navigator.clipboard.writeText(content);
+  } catch {
+    error.value = "复制失败，请手动选中内容。";
+  }
 }
 
-function renderMessage(content) {
-  return markdown.render(content || "");
+async function exportChat(format) {
+  const session = activeSession();
+  if (!session || !session.messages.length) {
+    error.value = "当前会话没有可导出的内容。";
+    return;
+  }
+
+  try {
+    let content = "";
+    const filename = `chat-${session.id}-${Date.now()}.${format}`;
+
+    if (format === "json") {
+      content = JSON.stringify({
+        session_id: session.id,
+        title: session.title,
+        created_at: new Date(session.created_at).toISOString(),
+        updated_at: new Date(session.updated_at).toISOString(),
+        messages: session.messages
+      }, null, 2);
+    } else {
+      content = `# ${session.title}\n\n`;
+      content += `**Created:** ${new Date(session.created_at).toLocaleString()}\n\n`;
+      content += `---\n\n`;
+
+      for (const msg of session.messages) {
+        const role = msg.role === "user" ? "User" : "Assistant";
+        const thinking = msg.role === "assistant" ? splitThinking(msg) : { reasoning: "", answer: msg.content };
+        content += `## ${role}\n\n`;
+
+        if (msg.role === "assistant" && thinking.reasoning) {
+          content += `<details>\n<summary>Thinking</summary>\n\n${thinking.reasoning}\n\n</details>\n\n`;
+        }
+
+        content += `${msg.role === "assistant" ? thinking.answer : msg.content}\n\n`;
+
+        if (msg.stats?.first_token_ms || msg.stats?.total_ms) {
+          content += `*Stats: First token ${formatDuration(msg.stats.first_token_ms)}, Total ${formatDuration(msg.stats.total_ms)}*\n\n`;
+        }
+
+        content += `---\n\n`;
+      }
+    }
+
+    const blob = new Blob([content], { type: format === "json" ? "application/json" : "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+    error.value = "";
+  } catch (cause) {
+    error.value = `导出失败: ${cause.message}`;
+  }
 }
 
 function splitThinking(message) {
@@ -597,12 +573,38 @@ function splitThinking(message) {
   return { reasoning, answer };
 }
 
-function isAssistantThinking(message) {
-  return message?.role === "assistant" && message?.pending === true;
+function renderMessage(content) {
+  return markdown.render(content || "");
+}
+
+function formatDuration(ms) {
+  if (ms == null) return "--";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)}s`;
+}
+
+function formatRelativeTime(value) {
+  if (!value) return "刚刚";
+  const diff = Date.now() - value;
+  if (diff < 60_000) return "刚刚更新";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  return new Date(value).toLocaleDateString();
+}
+
+function sessionPreview(session) {
+  const lastMessage = [...(session.messages || [])].reverse().find((item) => item.content?.trim());
+  if (!lastMessage) return "等待第一条输入";
+  const content = splitThinking(lastMessage).answer || lastMessage.content;
+  return content.length > 48 ? `${content.slice(0, 48)}...` : content;
 }
 
 function thinkingKey(index) {
   return `${currentSessionId.value}:${index}`;
+}
+
+function isAssistantThinking(message) {
+  return message?.role === "assistant" && message?.pending === true;
 }
 
 function isThinkingOpen(message, index) {
@@ -617,200 +619,318 @@ function toggleThinking(index) {
   };
 }
 
+async function scrollToBottom() {
+  await nextTick();
+  const el = conversationRef.value;
+  if (el) {
+    el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }
+}
+
 onMounted(() => {
   loadSessions();
   loadModels();
-  applyTheme();
-  window.addEventListener("keydown", handleWindowKeydown);
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener("keydown", handleWindowKeydown);
 });
 </script>
 
 <template>
-  <main class="chat-layout" :class="{ 'chat-layout-embedded': embedded }">
-    <aside class="session-panel" aria-label="会话列表">
-      <div class="session-panel-header">
-        <div>
-          <p class="eyebrow">本地</p>
-          <h2>会话</h2>
-        </div>
-        <button class="icon-button" type="button" @click="startNewSession" :disabled="sending" aria-label="新建会话">
-          <Plus :size="18" />
-        </button>
+  <section class="page chat-page">
+    <header class="chat-hero">
+      <div>
+        <p class="eyebrow">Conversation Surface</p>
+        <h1>开发者对话工作台</h1>
+        <p class="page-description">
+          用同一套工作台处理会话、模型和运行参数。聊天不再是孤立页面，而是整个 API 控制台里的核心操作面。
+        </p>
       </div>
-      <nav class="session-list">
-        <button
-          v-for="session in sessions"
-          :key="session.id"
-          class="session-item"
-          :class="{ active: session.id === currentSessionId }"
-          type="button"
-          @click="switchSession(session.id)"
-          :disabled="sending"
-        >
-          <MessageSquare :size="17" />
-          <span>{{ session.title }}</span>
-        </button>
-      </nav>
-    </aside>
+      <div class="hero-metrics">
+        <article class="hero-metric-card">
+          <span>会话数</span>
+          <strong>{{ sessionCount }}</strong>
+        </article>
+        <article class="hero-metric-card">
+          <span>当前消息</span>
+          <strong>{{ messageCount }}</strong>
+        </article>
+        <article class="hero-metric-card">
+          <span>完成回复</span>
+          <strong>{{ assistantReplyCount }}</strong>
+        </article>
+        <article class="hero-metric-card">
+          <span>最近延迟</span>
+          <strong>{{ formatDuration(lastLatency) }}</strong>
+        </article>
+      </div>
+    </header>
 
-    <section class="chat-shell">
-      <header class="chat-header">
-        <MessageSquare :size="24" />
-        <div>
-          <h1>AI 对话</h1>
-        </div>
-        <div class="chat-header-actions">
-          <button class="theme-toggle" type="button" @click="toggleTheme" :aria-label="theme === 'light' ? '切换到深色模式' : '切换到浅色模式'">
-            <Moon v-if="theme === 'light'" :size="18" />
-            <Sun v-else :size="18" />
-          </button>
-          <button class="theme-toggle" type="button" @click="toggleSettings" aria-label="设置">
-            <Sliders :size="18" />
-          </button>
-          <RouterLink class="debug-link" to="/m/channels" aria-label="管理">
-            <Settings :size="18" />
-          </RouterLink>
-        </div>
-      </header>
-
-      <section ref="conversationRef" class="conversation" :class="{ 'is-empty': !messages.length }" aria-live="polite">
-        <div v-if="!messages.length" class="chat-empty">
-          <p class="eyebrow">EdgeOne AI API</p>
-          <h2>有什么可以帮你？</h2>
-        </div>
-        <div v-for="(message, index) in messages" :key="index" class="message-row" :class="message.role">
-          <div v-if="message.role === 'assistant'" class="assistant-avatar">S</div>
-          <article class="message" :class="message.role">
-            <template v-if="message.role === 'assistant'">
-              <div
-                v-if="splitThinking(message).reasoning"
-                class="thinking-block"
-                :class="{ open: isThinkingOpen(message, index) }"
-              >
-                <button
-                  class="thinking-toggle"
-                  type="button"
-                  :aria-expanded="isThinkingOpen(message, index)"
-                  @click="toggleThinking(index)"
-                >
-                  <span>思考过程</span>
-                </button>
-                <div
-                  v-if="isThinkingOpen(message, index)"
-                  class="thinking-content"
-                  v-html="renderMessage(splitThinking(message).reasoning)"
-                ></div>
-              </div>
-              <div class="message-content" v-html="renderMessage(splitThinking(message).answer)"></div>
-              <div class="message-meta" aria-label="消息信息">
-                <div class="message-actions" aria-label="消息操作">
-                  <button
-                    class="message-action-button"
-                    type="button"
-                    @click="copyMessage(splitThinking(message).answer)"
-                    :disabled="!splitThinking(message).answer"
-                    aria-label="复制回复"
-                  >
-                    <Copy :size="16" />
-                  </button>
-                  <button
-                    class="message-action-button"
-                    type="button"
-                    @click="regenerateAssistant(index)"
-                    :disabled="sending"
-                    aria-label="重新生成回复"
-                  >
-                    <RefreshCw :size="16" />
-                  </button>
-                </div>
-                <div
-                  v-if="message.stats?.first_token_ms != null || message.stats?.total_ms != null"
-                  class="message-stats"
-                  aria-label="响应耗时"
-                >
-                  <span>首字 {{ formatDuration(message.stats.first_token_ms) }}</span>
-                  <span>总用时 {{ formatDuration(message.stats.total_ms) }}</span>
-                </div>
-              </div>
-            </template>
-            <div v-else class="message-content" v-html="renderMessage(message.content)"></div>
-          </article>
-        </div>
-        <p v-if="error" class="notice error">{{ error }}</p>
-      </section>
-
-      <form class="composer" @submit.prevent="sendMessage">
-        <button class="composer-icon" type="button" @click="clearCurrentSession" :disabled="sending || !messages.length" aria-label="清空当前会话">
-          <Trash2 :size="20" />
-        </button>
-        <div class="chat-model-control" aria-label="模型选择">
-          <Sparkles :size="16" />
-          <select v-if="availableModels.length" v-model="model">
-            <option v-for="item in availableModels" :key="item" :value="item">{{ item }}</option>
-          </select>
-          <input v-else v-model="model" autocomplete="off" placeholder="gpt-4o-mini">
-          <button class="secondary" type="button" @click="loadModels" :disabled="loadingModels" aria-label="获取模型">
-            <RefreshCw :size="16" />
-          </button>
-        </div>
-        <textarea v-model="draft" rows="1" placeholder="请输入您的问题..." @keydown.enter.exact.prevent="sendMessage"></textarea>
-        <button class="send-button" type="submit" v-if="!sending" :disabled="!draft.trim()" aria-label="发送">
-          <ArrowUp :size="22" />
-        </button>
-        <button class="send-button" type="button" v-else @click="stopGeneration" aria-label="停止生成">
-          <Square :size="18" />
-        </button>
-      </form>
-    </section>
-
-    <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false">
-      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <div class="settings-header">
-          <h3 id="settings-title">设置</h3>
-          <button class="icon-button settings-close" type="button" @click="showSettings = false" aria-label="关闭">
-            <X :size="16" />
+    <section class="chat-workbench-grid">
+      <aside class="panel chat-session-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Sessions</p>
+            <h2>本地会话</h2>
+          </div>
+          <button class="icon-button" type="button" @click="startNewSession" :disabled="sending" aria-label="新建会话">
+            <Plus :size="18" />
           </button>
         </div>
 
-        <div class="settings-row">
-          <label>
-            Temperature
-            <small style="color: var(--muted); font-size: 12px;">{{ temperature }}</small>
-          </label>
-          <input type="range" min="0" max="2" step="0.1" :value="temperature" @input="updateTemperature($event.target.value)">
-        </div>
-
-        <div class="settings-row">
-          <label>
-            Max Tokens
-            <small style="color: var(--muted); font-size: 12px;">{{ maxTokens || '不限制' }}</small>
-          </label>
-          <input type="number" min="1" max="32000" :value="maxTokens || ''" @input="updateMaxTokens($event.target.value)" placeholder="不限制">
-        </div>
-
-        <div class="settings-row">
-          <label>
-            Top P
-            <small style="color: var(--muted); font-size: 12px;">{{ topP }}</small>
-          </label>
-          <input type="range" min="0" max="1" step="0.05" :value="topP" @input="updateTopP($event.target.value)">
-        </div>
-
-        <div class="settings-row settings-row-stacked">
-          <label>
-            <Download :size="16" />
-            导出对话
-          </label>
-          <div class="export-buttons">
-            <button type="button" class="secondary" @click="exportChat('md')">Markdown</button>
-            <button type="button" class="secondary" @click="exportChat('json')">JSON</button>
+        <div class="chat-session-summary">
+          <div class="context-metric">
+            <span>当前标题</span>
+            <strong>{{ activeSessionTitle }}</strong>
+          </div>
+          <div class="context-metric">
+            <span>模型</span>
+            <strong>{{ model }}</strong>
           </div>
         </div>
+
+        <nav class="session-list">
+          <button
+            v-for="session in sessions"
+            :key="session.id"
+            class="session-card"
+            :class="{ active: session.id === currentSessionId }"
+            type="button"
+            @click="switchSession(session.id)"
+            :disabled="sending"
+          >
+            <div class="session-card-head">
+              <span class="session-card-title">{{ session.title }}</span>
+              <span class="badge muted">{{ session.messages.length }}</span>
+            </div>
+            <p class="session-card-preview">{{ sessionPreview(session) }}</p>
+            <p class="session-card-time">{{ formatRelativeTime(session.updated_at) }}</p>
+          </button>
+        </nav>
+      </aside>
+
+      <section class="panel chat-canvas">
+        <header class="chat-canvas-header">
+          <div>
+            <p class="eyebrow">Active Session</p>
+            <h2>{{ activeSessionTitle }}</h2>
+            <p class="page-description">围绕当前会话连续试验模型、参数和提示词，不必离开控制台。</p>
+          </div>
+          <div class="chat-canvas-actions">
+            <span class="badge on">{{ stream ? "Streaming" : "JSON" }}</span>
+            <span class="badge muted">{{ model }}</span>
+          </div>
+        </header>
+
+        <section ref="conversationRef" class="conversation" :class="{ 'is-empty': !messages.length }" aria-live="polite">
+          <div v-if="!messages.length" class="chat-empty-state">
+            <div class="chat-empty-copy">
+              <p class="eyebrow">Ready</p>
+              <h2>从一个明确的问题开始</h2>
+              <p>
+                这里适合做开发者场景对话：接口排障、提示词验证、模型比较和返回结果分析。
+              </p>
+            </div>
+            <div class="chat-starter-list">
+              <button
+                v-for="prompt in starterPrompts"
+                :key="prompt"
+                class="starter-chip"
+                type="button"
+                @click="useStarterPrompt(prompt)"
+              >
+                {{ prompt }}
+              </button>
+            </div>
+          </div>
+
+          <div v-for="(message, index) in messages" :key="index" class="message-row" :class="message.role">
+            <div v-if="message.role === 'assistant'" class="assistant-avatar">AI</div>
+            <article class="message-card" :class="message.role">
+              <template v-if="message.role === 'assistant'">
+                <div
+                  v-if="splitThinking(message).reasoning"
+                  class="thinking-block"
+                  :class="{ open: isThinkingOpen(message, index) }"
+                >
+                  <button
+                    class="thinking-toggle"
+                    type="button"
+                    :aria-expanded="isThinkingOpen(message, index)"
+                    @click="toggleThinking(index)"
+                  >
+                    思考过程
+                  </button>
+                  <div
+                    v-if="isThinkingOpen(message, index)"
+                    class="thinking-content"
+                    v-html="renderMessage(splitThinking(message).reasoning)"
+                  ></div>
+                </div>
+
+                <div class="message-content" v-html="renderMessage(splitThinking(message).answer)"></div>
+
+                <div class="message-meta">
+                  <div class="message-actions">
+                    <button
+                      class="message-action-button"
+                      type="button"
+                      @click="copyMessage(splitThinking(message).answer)"
+                      :disabled="!splitThinking(message).answer"
+                      aria-label="复制回复"
+                    >
+                      <Copy :size="16" />
+                    </button>
+                    <button
+                      class="message-action-button"
+                      type="button"
+                      @click="regenerateAssistant(index)"
+                      :disabled="sending"
+                      aria-label="重新生成回复"
+                    >
+                      <RefreshCw :size="16" />
+                    </button>
+                  </div>
+                  <div v-if="message.stats?.first_token_ms != null || message.stats?.total_ms != null" class="message-stats">
+                    <span>首字 {{ formatDuration(message.stats.first_token_ms) }}</span>
+                    <span>总耗时 {{ formatDuration(message.stats.total_ms) }}</span>
+                  </div>
+                </div>
+              </template>
+
+              <div v-else class="message-content" v-html="renderMessage(message.content)"></div>
+            </article>
+          </div>
+        </section>
+
+        <p v-if="error" class="notice error">{{ error }}</p>
+
+        <form class="composer" @submit.prevent="sendMessage">
+          <div class="composer-main">
+            <textarea
+              ref="composerRef"
+              v-model="draft"
+              rows="1"
+              placeholder="输入问题、调试思路或需要生成的结果"
+              @keydown.enter.exact.prevent="sendMessage"
+            ></textarea>
+            <div class="composer-footer">
+              <div class="composer-hint">
+                <MessageSquare :size="16" />
+                <span>Enter 发送，Shift + Enter 换行</span>
+              </div>
+              <div class="composer-actions">
+                <button
+                  class="secondary compact-button"
+                  type="button"
+                  @click="clearCurrentSession"
+                  :disabled="sending || !messages.length"
+                >
+                  <Trash2 :size="16" />
+                  清空
+                </button>
+                <button class="send-button" type="submit" v-if="!sending" :disabled="!draft.trim()" aria-label="发送">
+                  <ArrowUp :size="18" />
+                </button>
+                <button class="send-button danger" type="button" v-else @click="stopGeneration" aria-label="停止生成">
+                  <Square :size="16" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </form>
       </section>
-    </div>
-  </main>
+
+      <aside class="chat-runtime-rail">
+        <section class="panel runtime-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Runtime</p>
+              <h2>模型与参数</h2>
+            </div>
+            <button class="icon-button" type="button" @click="loadModels" :disabled="loadingModels" aria-label="刷新模型">
+              <RefreshCw :size="18" :class="{ spinning: loadingModels }" />
+            </button>
+          </div>
+
+          <label>
+            当前模型
+            <select v-if="availableModels.length" v-model="model">
+              <option v-for="item in availableModels" :key="item" :value="item">{{ item }}</option>
+            </select>
+            <input v-else v-model="model" autocomplete="off" placeholder="gpt-4o-mini">
+          </label>
+
+          <div class="switch-card">
+            <div>
+              <strong>流式响应</strong>
+              <p>更适合边看边调试延迟和推理过程。</p>
+            </div>
+            <button class="secondary compact-button" type="button" :class="{ active: stream }" @click="toggleStream">
+              {{ stream ? "已开启" : "已关闭" }}
+            </button>
+          </div>
+
+          <label>
+            Temperature
+            <input type="range" min="0" max="2" step="0.1" :value="temperature" @input="updateTemperature($event.target.value)">
+            <span class="field-meta">{{ temperature }}</span>
+          </label>
+
+          <label>
+            Top P
+            <input type="range" min="0" max="1" step="0.05" :value="topP" @input="updateTopP($event.target.value)">
+            <span class="field-meta">{{ topP }}</span>
+          </label>
+
+          <label>
+            Max Tokens
+            <input
+              type="number"
+              min="1"
+              max="32000"
+              :value="maxTokens || ''"
+              @input="updateMaxTokens($event.target.value)"
+              placeholder="不限制"
+            >
+            <span class="field-meta">{{ maxTokens || "不限制" }}</span>
+          </label>
+        </section>
+
+        <section class="panel runtime-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Session Ops</p>
+              <h2>导出与观察</h2>
+            </div>
+            <Sparkles :size="18" />
+          </div>
+
+          <div class="context-metric">
+            <span>当前会话</span>
+            <strong>{{ activeSessionTitle }}</strong>
+          </div>
+          <div class="context-metric">
+            <span>响应模式</span>
+            <strong>{{ stream ? "Streaming" : "Non-streaming" }}</strong>
+          </div>
+          <div class="context-metric">
+            <span>公开模型源</span>
+            <strong>{{ availableModels.length ? `${availableModels.length} 个` : "未加载" }}</strong>
+          </div>
+
+          <div class="export-buttons">
+            <button type="button" class="secondary" @click="exportChat('md')">
+              <Download :size="16" />
+              Markdown
+            </button>
+            <button type="button" class="secondary" @click="exportChat('json')">
+              <Download :size="16" />
+              JSON
+            </button>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </section>
 </template>
