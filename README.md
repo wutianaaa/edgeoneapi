@@ -97,6 +97,7 @@ npm run build
 
 ## 📖 文档
 
+- [项目结构](docs/PROJECT_STRUCTURE.md) - 完整的目录结构说明 ⭐
 - [快速开始](docs/QUICKSTART.md) - 5 分钟快速上手
 - [API 文档](docs/API.md) - 完整 API 参考
 - [部署指南](docs/DEPLOY_GUIDE.md) - 详细部署步骤
