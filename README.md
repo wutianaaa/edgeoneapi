@@ -279,6 +279,7 @@ API Key 认证
 
 ## 🙏 致谢
 
+- [Linux do 社区](https://linux.do/)
 - [EdgeOne Pages](https://www.tencentcloud.com/products/teo) - 部署平台
 - [Vue 3](https://vuejs.org/) - 前端框架
 - [Vite](https://vitejs.dev/) - 构建工具
