@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run --coverage",
-    "check": "node --check lib/shared.js && node --check functions/api/[[default]].js && node --check functions/v1/chat/completions.js && node --check functions/v1/models.js && node --check edge-functions/api/[[default]].js && node --check edge-functions/v1/chat/completions.js && node --check edge-functions/v1/models.js && vite build"
+    "check": "node --check lib/shared.js && node --check edge-functions/api/[[default]].js && node --check edge-functions/v1/chat/completions.js && node --check edge-functions/v1/models.js && vite build"
   },
   "dependencies": {
     "@lucide/vue": "^1.17.0",

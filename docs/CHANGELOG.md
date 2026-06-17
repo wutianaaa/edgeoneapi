@@ -253,7 +253,7 @@ POST   /api/admin/models/fetch    - 获取上游模型
 - `LICENSE` - MIT 开源协议 ⭐ 新增
 - `.env.example` - 环境变量配置示例 ⭐ 新增
 - `QUICKSTART.md` - 快速开始指南
-- `DEPLOYMENT.md` - 详细部署指南
+- `DEPLOY_GUIDE.md` - 详细部署指南
 - `FEATURES.md` - 功能列表
 - `CIRCUIT_BREAKER.md` - 熔断器和性能监控文档 ⭐
 - `ROADMAP.md` - 功能规划 ⭐
@@ -374,7 +374,7 @@ POST   /api/admin/models/fetch    - 获取上游模型
    - 设置环境变量
    - 部署
 
-详细步骤请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)
+详细步骤请参考 [DEPLOY_GUIDE.md](./DEPLOY_GUIDE.md)
 
 ---
 

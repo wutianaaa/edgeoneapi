@@ -75,7 +75,7 @@ npm run build
 
 ## 📦 部署到 EdgeOne Pages
 
-详细部署步骤请参考 [部署指南](./DEPLOYMENT.md)。
+详细部署步骤请参考 [部署指南](docs/DEPLOY_GUIDE.md)。
 
 ### 快速部署
 
@@ -97,12 +97,13 @@ npm run build
 
 ## 📖 文档
 
-- [快速开始](./QUICKSTART.md) - 5 分钟快速上手
-- [API 文档](./API.md) - 完整 API 参考
-- [部署指南](./DEPLOYMENT.md) - 详细部署步骤
-- [功能列表](./FEATURES.md) - 所有功能说明
-- [熔断器文档](./CIRCUIT_BREAKER.md) - 熔断器和性能监控
-- [开发路线](./ROADMAP.md) - 功能规划
+- [快速开始](docs/QUICKSTART.md) - 5 分钟快速上手
+- [API 文档](docs/API.md) - 完整 API 参考
+- [部署指南](docs/DEPLOY_GUIDE.md) - 详细部署步骤
+- [功能列表](docs/FEATURES.md) - 所有功能说明
+- [熔断器文档](docs/CIRCUIT_BREAKER.md) - 熔断器和性能监控
+- [开发路线](docs/ROADMAP.md) - 功能规划
+- [变更日志](docs/CHANGELOG.md) - 版本历史
 
 ## 🎯 使用示例
 
@@ -136,7 +137,7 @@ curl https://your-domain.com/v1/chat/completions \
   }'
 ```
 
-更多示例请查看 [API 文档](./API.md)。
+更多示例请查看 [API 文档](docs/API.md)。
 
 ## 🖥️ 界面预览
 

@@ -559,7 +559,7 @@ curl https://your-domain.com/v1/chat/completions \
 ## 🔗 相关文档
 
 - [快速开始](./QUICKSTART.md)
-- [部署指南](./DEPLOYMENT.md)
+- [部署指南](./DEPLOY_GUIDE.md)
 - [熔断器文档](./CIRCUIT_BREAKER.md)
 - [功能列表](./FEATURES.md)
 
