@@ -32,26 +32,15 @@ const channelTypes = [
 
 const channels = ref([]);
 const models = ref([]);
-const fetchedModels = ref([]);
-const selectedFetched = ref([]);
 const loading = ref(false);
 const saving = ref(false);
-const fetching = ref(false);
 const modalOpen = ref(false);
 const notice = ref("");
 const error = ref("");
-const editingModelKey = ref("");
 const form = reactive(emptyChannel());
-const modelForm = reactive(emptyModel());
 
-const currentChannelModels = computed(() => {
-  if (!form.id) return [];
-  return models.value.filter((model) => (model.channel_ids || []).includes(form.id));
-});
 const enabledChannels = computed(() => channels.value.filter((channel) => channel.enabled).length);
-const disabledChannels = computed(() => channels.value.length - enabledChannels.value);
 const totalModels = computed(() => models.value.length);
-const selectedFetchedCount = computed(() => selectedFetched.value.length);
 const selectedChannelType = computed(() => channelTypeConfig(form.type));
 
 function emptyChannel() {
@@ -67,13 +56,6 @@ function emptyChannel() {
   };
 }
 
-function emptyModel() {
-  return {
-    model: "",
-    upstream_model: ""
-  };
-}
-
 function channelTypeConfig(type) {
   return channelTypes.find((item) => item.value === type) || channelTypes[0];
 }
@@ -82,27 +64,11 @@ function channelTypeLabel(type) {
   return channelTypeConfig(type).label;
 }
 
-function modelToken(item) {
-  return `${item.channel_id}:${item.id}`;
-}
-
 function channelModelCount(channelId) {
   return models.value.filter((model) => (model.channel_ids || []).includes(channelId)).length;
 }
 
-function resetModelForm() {
-  editingModelKey.value = "";
-  Object.assign(modelForm, emptyModel());
-}
-
-function resetModalState() {
-  resetModelForm();
-  fetchedModels.value = [];
-  selectedFetched.value = [];
-}
-
 function closeModal() {
-  resetModalState();
   modalOpen.value = false;
 }
 
@@ -151,73 +117,10 @@ async function exportChannels() {
   }
 }
 
-async function importChannels() {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "application/json";
-  input.onchange = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-
-      if (!Array.isArray(data.channels)) {
-        throw new Error("导入文件格式不正确。");
-      }
-
-      let imported = 0;
-      for (const channel of data.channels) {
-        try {
-          await adminRequest("/api/admin/channels", {
-            method: "POST",
-            body: JSON.stringify({
-              name: channel.name,
-              type: channel.type || "openai",
-              base_url: channel.base_url,
-              api_key: channel.api_key || "",
-              enabled: channel.enabled !== false,
-              weight: channel.weight || 1
-            })
-          });
-          imported += 1;
-        } catch (cause) {
-          if (import.meta.env.DEV) {
-            console.error(`Failed to import channel ${channel.name}:`, cause);
-          }
-        }
-      }
-
-      if (Array.isArray(data.models)) {
-        for (const model of data.models) {
-          try {
-            await adminRequest(`/api/admin/models/${encodeURIComponent(model.model)}`, {
-              method: "PUT",
-              body: JSON.stringify(model)
-            });
-          } catch (cause) {
-            if (import.meta.env.DEV) {
-              console.error(`Failed to import model ${model.model}:`, cause);
-            }
-          }
-        }
-      }
-
-      notice.value = `成功导入 ${imported} 个渠道。`;
-      await load();
-    } catch (cause) {
-      error.value = `导入失败: ${cause.message}`;
-    }
-  };
-  input.click();
-}
-
 function openNew() {
   notice.value = "";
   error.value = "";
   Object.assign(form, emptyChannel());
-  resetModalState();
   modalOpen.value = true;
 }
 
@@ -233,7 +136,6 @@ async function openEdit(channel) {
     enabled: Boolean(channel.enabled),
     weight: channel.weight || 0
   });
-  resetModalState();
   modalOpen.value = true;
 
   try {
@@ -263,20 +165,19 @@ async function saveChannel() {
 
   try {
     if (form.id) {
-      const body = await adminRequest(`/api/admin/channels/${encodeURIComponent(form.id)}`, {
+      await adminRequest(`/api/admin/channels/${encodeURIComponent(form.id)}`, {
         method: "PUT",
         body: JSON.stringify(payload)
       });
-      Object.assign(form, { ...form, ...body.data, api_key: "" });
     } else {
-      const body = await adminRequest("/api/admin/channels", {
+      await adminRequest("/api/admin/channels", {
         method: "POST",
         body: JSON.stringify(payload)
       });
-      Object.assign(form, { ...form, ...body.data, api_key: "" });
     }
 
     notice.value = "渠道已保存。";
+    closeModal();
     await load();
   } catch (cause) {
     error.value = cause.message;
@@ -288,8 +189,8 @@ async function saveChannel() {
 async function removeChannel(channel) {
   const modelCount = channelModelCount(channel.id);
   const message = modelCount
-    ? `确定删除渠道“${channel.name}”吗？该渠道当前关联 ${modelCount} 个模型映射。`
-    : `确定删除渠道“${channel.name}”吗？`;
+    ? `确定删除渠道"${channel.name}"吗？该渠道当前关联 ${modelCount} 个模型映射。`
+    : `确定删除渠道"${channel.name}"吗？`;
   if (!window.confirm(message)) return;
 
   error.value = "";
@@ -303,134 +204,6 @@ async function removeChannel(channel) {
   } catch (cause) {
     error.value = cause.message;
   }
-}
-
-async function fetchModels() {
-  if (!form.id) {
-    error.value = "请先保存渠道，再获取模型。";
-    return;
-  }
-
-  fetching.value = true;
-  error.value = "";
-  selectedFetched.value = [];
-  try {
-    const body = await fetchUpstreamModels([form.id]);
-    fetchedModels.value = body.data || [];
-    const failureCount = (body.failures || []).length;
-    notice.value = failureCount
-      ? `已获取 ${fetchedModels.value.length} 个模型，另有 ${failureCount} 个请求失败。`
-      : `已获取 ${fetchedModels.value.length} 个模型。`;
-  } catch (cause) {
-    error.value = cause.message;
-  } finally {
-    fetching.value = false;
-  }
-}
-
-async function putModel(key, payload) {
-  await adminRequest(`/api/admin/models/${encodeURIComponent(key)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
-  });
-}
-
-async function saveSelectedModels(selected) {
-  if (selected.length === 1) {
-    const item = selected[0];
-    const publicModel = modelForm.model.trim() || item.id;
-    await putModel(editingModelKey.value || publicModel, {
-      model: publicModel,
-      upstream_model: modelForm.upstream_model.trim() || item.id,
-      channel_ids: [form.id]
-    });
-    return;
-  }
-
-  for (const item of selected) {
-    await putModel(item.id, {
-      model: item.id,
-      upstream_model: item.id,
-      channel_ids: [form.id]
-    });
-  }
-}
-
-async function saveSingleModel() {
-  const publicModel = modelForm.model.trim();
-  if (!publicModel) {
-    throw new Error("请选择模型或填写公开模型名称。");
-  }
-
-  await putModel(editingModelKey.value || publicModel, {
-    model: publicModel,
-    upstream_model: modelForm.upstream_model.trim() || publicModel,
-    channel_ids: [form.id]
-  });
-}
-
-async function saveModels() {
-  if (!form.id) {
-    error.value = "请先保存渠道，再配置模型。";
-    return;
-  }
-
-  error.value = "";
-  notice.value = "";
-
-  try {
-    const selected = fetchedModels.value.filter((item) => selectedFetched.value.includes(modelToken(item)));
-    if (selected.length) {
-      await saveSelectedModels(selected);
-    } else {
-      await saveSingleModel();
-    }
-
-    resetModelForm();
-    selectedFetched.value = [];
-    notice.value = "模型映射已保存。";
-    await load();
-  } catch (cause) {
-    error.value = cause.message;
-  }
-}
-
-function useFetchedModel(item) {
-  modelForm.upstream_model = item.id;
-  if (!modelForm.model) {
-    modelForm.model = item.id;
-  }
-}
-
-function editModel(model) {
-  editingModelKey.value = model.model;
-  modelForm.model = model.model;
-  modelForm.upstream_model = model.upstream_model || model.model;
-  selectedFetched.value = [];
-}
-
-async function removeModel(model) {
-  if (!window.confirm(`确定删除模型映射“${model.model}”吗？`)) return;
-
-  error.value = "";
-  try {
-    await adminRequest(`/api/admin/models/${encodeURIComponent(model.model)}`, { method: "DELETE" });
-    notice.value = "模型映射已删除。";
-    if (editingModelKey.value === model.model) {
-      resetModelForm();
-    }
-    await load();
-  } catch (cause) {
-    error.value = cause.message;
-  }
-}
-
-function selectAllFetched() {
-  selectedFetched.value = fetchedModels.value.map(modelToken);
-}
-
-function clearFetchedSelection() {
-  selectedFetched.value = [];
 }
 
 function handleWindowKeydown(event) {
@@ -462,12 +235,8 @@ onBeforeUnmount(() => {
           <Download :size="18" />
           导出
         </button>
-        <button class="secondary" type="button" @click="importChannels">
-          <Upload :size="18" />
-          导入
-        </button>
         <button class="secondary" type="button" @click="load" :disabled="loading">
-          <RefreshCw :size="18" />
+          <RefreshCw :size="18" :class="{ spinning: loading }" />
           刷新
         </button>
         <button type="button" @click="openNew">
@@ -480,7 +249,7 @@ onBeforeUnmount(() => {
     <div v-if="notice" class="notice">{{ notice }}</div>
     <div v-if="error" class="notice error">{{ error }}</div>
 
-    <section class="metric-grid" aria-label="渠道概览">
+    <section class="metric-grid">
       <article class="metric-card">
         <span>全部渠道</span>
         <strong>{{ channels.length }}</strong>
@@ -488,10 +257,6 @@ onBeforeUnmount(() => {
       <article class="metric-card">
         <span>启用中</span>
         <strong>{{ enabledChannels }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>停用</span>
-        <strong>{{ disabledChannels }}</strong>
       </article>
       <article class="metric-card">
         <span>公开模型</span>
@@ -520,9 +285,9 @@ onBeforeUnmount(() => {
             <td><span class="badge" :class="{ on: channel.enabled, off: !channel.enabled }">{{ channel.enabled ? "启用" : "停用" }}</span></td>
             <td>{{ channel.weight }}</td>
             <td>{{ channelModelCount(channel.id) }}</td>
-            <td class="actions">
+            <td style="width: 1%; white-space: nowrap;">
               <button class="icon-button" type="button" @click="openEdit(channel)" aria-label="编辑渠道"><Pencil :size="17" /></button>
-              <button class="icon-button danger" type="button" @click="removeChannel(channel)" aria-label="删除渠道"><Trash2 :size="17" /></button>
+              <button class="icon-button" type="button" @click="removeChannel(channel)" aria-label="删除渠道" style="color: var(--color-error);"><Trash2 :size="17" /></button>
             </td>
           </tr>
           <tr v-if="!channels.length">
@@ -533,27 +298,17 @@ onBeforeUnmount(() => {
     </section>
 
     <div v-if="modalOpen" class="modal-backdrop" role="presentation" @click.self="closeModal">
-      <section class="modal channel-modal" role="dialog" aria-modal="true" aria-labelledby="channel-dialog-title">
+      <section class="modal" role="dialog" aria-modal="true">
         <header class="modal-header">
           <div>
             <p class="eyebrow">渠道</p>
-            <h2 id="channel-dialog-title">{{ form.id ? "编辑渠道" : "新建渠道" }}</h2>
-          </div>
-          <div class="modal-header-meta">
-            <span class="badge" :class="{ on: form.enabled, off: !form.enabled }">{{ form.enabled ? "启用" : "停用" }}</span>
-            <span class="badge muted">{{ currentChannelModels.length }} 个模型</span>
+            <h2>{{ form.id ? "编辑渠道" : "新建渠道" }}</h2>
           </div>
           <button class="icon-button" type="button" @click="closeModal" aria-label="关闭"><X :size="18" /></button>
         </header>
 
-        <div class="modal-body channel-modal-body">
-          <form class="panel plain-panel channel-config" @submit.prevent="saveChannel">
-            <div class="panel-heading">
-              <div>
-                <h2>连接配置</h2>
-                <p class="form-hint">保存渠道后，即可从该上游拉取模型并维护公开模型映射。</p>
-              </div>
-            </div>
+        <div class="modal-body">
+          <form @submit.prevent="saveChannel" style="display: flex; flex-direction: column; gap: 16px;">
             <label>名称 <input v-model="form.name" required :placeholder="selectedChannelType.namePlaceholder"></label>
             <label>
               类型
@@ -563,110 +318,10 @@ onBeforeUnmount(() => {
             </label>
             <label>基础 URL <input v-model="form.base_url" required :placeholder="selectedChannelType.baseUrl"></label>
             <label>API Key <input v-model="form.api_key" type="password" autocomplete="off" :placeholder="selectedChannelType.apiKeyPlaceholder"></label>
-            <div class="form-row form-row-even">
-              <label>权重 <input v-model="form.weight" type="number" min="0" step="1"></label>
-              <label class="switch"><input v-model="form.enabled" type="checkbox"> 启用</label>
-            </div>
-            <div class="form-actions">
-              <button type="submit" :disabled="saving">{{ saving ? "保存中" : "保存渠道" }}</button>
-            </div>
+            <label>权重 <input v-model="form.weight" type="number" min="0" step="1"></label>
+            <label style="flex-direction: row; align-items: center;"><input v-model="form.enabled" type="checkbox" style="width: auto; min-height: auto;"> 启用</label>
+            <button type="submit" :disabled="saving">{{ saving ? "保存中" : "保存渠道" }}</button>
           </form>
-
-          <section class="panel plain-panel channel-model-workspace">
-            <div class="panel-heading">
-              <div>
-                <h2>同步上游模型</h2>
-                <p class="form-hint">从当前渠道读取模型列表，可批量保存为公开模型。</p>
-              </div>
-              <button class="secondary" type="button" @click="fetchModels" :disabled="fetching || !form.id">
-                <Download :size="18" />
-                {{ fetching ? "获取中" : "获取模型" }}
-              </button>
-            </div>
-
-            <div class="inline-toolbar">
-              <span class="badge muted">已选 {{ selectedFetchedCount }}</span>
-              <button class="secondary compact-button" type="button" @click="selectAllFetched" :disabled="!fetchedModels.length">全选</button>
-              <button class="secondary compact-button" type="button" @click="clearFetchedSelection" :disabled="!selectedFetchedCount">清空</button>
-            </div>
-
-            <section class="table-wrap compact-table model-pick-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th>上游模型</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in fetchedModels" :key="modelToken(item)">
-                    <td>
-                      <input v-model="selectedFetched" type="checkbox" :value="modelToken(item)" :aria-label="`选择 ${item.id}`">
-                    </td>
-                    <td class="mono">{{ item.id }}</td>
-                    <td class="actions">
-                      <button class="icon-button" type="button" @click="useFetchedModel(item)" aria-label="使用模型"><Pencil :size="17" /></button>
-                    </td>
-                  </tr>
-                  <tr v-if="!fetchedModels.length">
-                    <td class="empty-row" colspan="3">{{ form.id ? "尚未获取上游模型。" : "请先保存渠道，再获取模型。" }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-
-            <div class="section-heading">
-              <div>
-                <h2>{{ editingModelKey ? "编辑模型映射" : "添加模型映射" }}</h2>
-                <p class="form-hint">公开模型是客户端请求的 `model`，会被重定向到对应的上游模型。</p>
-              </div>
-              <button v-if="editingModelKey" class="secondary compact-button" type="button" @click="resetModelForm">取消编辑</button>
-            </div>
-
-            <div class="form-row form-row-even">
-              <label>公开模型 <input v-model="modelForm.model" placeholder="gpt-4o-mini"></label>
-              <label>上游模型 <input v-model="modelForm.upstream_model" :placeholder="selectedChannelType.upstreamModelPlaceholder"></label>
-            </div>
-            <div class="form-actions">
-              <button type="button" @click="saveModels" :disabled="!form.id || (!selectedFetchedCount && !modelForm.model.trim())">
-                {{ editingModelKey ? "更新模型" : (selectedFetchedCount ? `保存 ${selectedFetchedCount} 个模型` : "保存模型") }}
-              </button>
-            </div>
-
-            <div class="section-heading">
-              <div>
-                <h2>当前映射</h2>
-                <p class="form-hint">这些模型会出现在 `/v1/models`，并可被用户 Key 进行访问控制。</p>
-              </div>
-              <span class="badge muted">{{ currentChannelModels.length }}</span>
-            </div>
-
-            <section class="table-wrap compact-table mapped-model-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>公开模型</th>
-                    <th>上游模型</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="model in currentChannelModels" :key="model.model">
-                    <td>{{ model.model }}</td>
-                    <td>{{ model.upstream_model || model.model }}</td>
-                    <td class="actions">
-                      <button class="icon-button" type="button" @click="editModel(model)" aria-label="编辑模型"><Pencil :size="17" /></button>
-                      <button class="icon-button danger" type="button" @click="removeModel(model)" aria-label="删除模型"><Trash2 :size="17" /></button>
-                    </td>
-                  </tr>
-                  <tr v-if="!currentChannelModels.length">
-                    <td class="empty-row" colspan="3">当前渠道还没有绑定公开模型。</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-          </section>
         </div>
       </section>
     </div>

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { Copy, Download, KeyRound, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "@lucide/vue";
+import { Copy, Download, KeyRound, Pencil, Plus, RefreshCw, Trash2, X } from "@lucide/vue";
 import { adminRequest } from "../../services/api.js";
 
 const users = ref([]);
@@ -13,8 +13,7 @@ const error = ref("");
 const form = reactive(emptyForm());
 
 const enabledUsers = computed(() => users.value.filter((user) => user.enabled).length);
-const defaultUsers = computed(() => users.value.filter((user) => user.is_default).length);
-const keyUsers = computed(() => users.value.filter((user) => user.has_api_key || user.api_key).length);
+const totalUsers = computed(() => users.value.length);
 
 function emptyForm() {
   return {
@@ -27,9 +26,20 @@ function emptyForm() {
   };
 }
 
-function logDevError(...args) {
-  if (import.meta.env.DEV) {
-    console.error(...args);
+async function load() {
+  loading.value = true;
+  error.value = "";
+  try {
+    const [userBody, modelBody] = await Promise.all([
+      adminRequest("/api/admin/users"),
+      adminRequest("/api/admin/models")
+    ]);
+    users.value = userBody.data || [];
+    models.value = modelBody.data || [];
+  } catch (cause) {
+    error.value = cause.message;
+  } finally {
+    loading.value = false;
   }
 }
 
@@ -53,70 +63,9 @@ async function exportUsers() {
     link.download = `users-export-${Date.now()}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    notice.value = "用户列表已导出，文件中不包含 API Key。";
+    notice.value = "用户列表已导出。";
   } catch (cause) {
     error.value = `导出失败: ${cause.message}`;
-  }
-}
-
-async function importUsers() {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "application/json";
-  input.onchange = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-
-      if (!Array.isArray(data.users)) {
-        throw new Error("导入文件格式不正确。");
-      }
-
-      let imported = 0;
-      for (const user of data.users) {
-        try {
-          await adminRequest("/api/admin/users", {
-            method: "POST",
-            body: JSON.stringify({
-              name: user.name,
-              api_key: createApiKey(),
-              allowed_models: user.allowed_models || [],
-              is_default: user.is_default || false,
-              enabled: user.enabled !== false
-            })
-          });
-          imported += 1;
-        } catch (cause) {
-          logDevError(`Failed to import user ${user.name}:`, cause);
-        }
-      }
-
-      notice.value = `成功导入 ${imported} 个用户，并重新生成了 API Key。`;
-      await load();
-    } catch (cause) {
-      error.value = `导入失败: ${cause.message}`;
-    }
-  };
-  input.click();
-}
-
-async function load() {
-  loading.value = true;
-  error.value = "";
-  try {
-    const [userBody, modelBody] = await Promise.all([
-      adminRequest("/api/admin/users"),
-      adminRequest("/api/admin/models")
-    ]);
-    users.value = userBody.data || [];
-    models.value = modelBody.data || [];
-  } catch (cause) {
-    error.value = cause.message;
-  } finally {
-    loading.value = false;
   }
 }
 
@@ -142,7 +91,6 @@ function openEdit(user) {
 }
 
 function closeModal() {
-  Object.assign(form, emptyForm());
   modalOpen.value = false;
 }
 
@@ -174,7 +122,7 @@ async function save() {
 }
 
 async function remove(user) {
-  if (!window.confirm(`确定删除用户“${user.name}”吗？`)) return;
+  if (!window.confirm(`确定删除用户"${user.name}"吗？`)) return;
 
   error.value = "";
   try {
@@ -251,12 +199,8 @@ onBeforeUnmount(() => {
           <Download :size="18" />
           导出
         </button>
-        <button class="secondary" type="button" @click="importUsers">
-          <Upload :size="18" />
-          导入
-        </button>
         <button class="secondary" type="button" @click="load" :disabled="loading">
-          <RefreshCw :size="18" />
+          <RefreshCw :size="18" :class="{ spinning: loading }" />
           刷新
         </button>
         <button type="button" @click="openNew">
@@ -269,22 +213,14 @@ onBeforeUnmount(() => {
     <div v-if="notice" class="notice">{{ notice }}</div>
     <div v-if="error" class="notice error">{{ error }}</div>
 
-    <section class="metric-grid" aria-label="用户概览">
+    <section class="metric-grid">
       <article class="metric-card">
         <span>全部用户</span>
-        <strong>{{ users.length }}</strong>
+        <strong>{{ totalUsers }}</strong>
       </article>
       <article class="metric-card">
         <span>启用中</span>
         <strong>{{ enabledUsers }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>默认访问</span>
-        <strong>{{ defaultUsers }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>已配置 Key</span>
-        <strong>{{ keyUsers }}</strong>
       </article>
     </section>
 
@@ -293,7 +229,6 @@ onBeforeUnmount(() => {
         <thead>
           <tr>
             <th>名称</th>
-            <th>ID</th>
             <th>API Key</th>
             <th>可用模型</th>
             <th>默认</th>
@@ -304,8 +239,7 @@ onBeforeUnmount(() => {
         <tbody>
           <tr v-for="user in users" :key="user.id">
             <td>{{ user.name }}</td>
-            <td class="mono">{{ user.id }}</td>
-            <td class="mono key-cell">
+            <td class="mono" style="display: flex; align-items: center; gap: 8px;">
               <span>{{ user.api_key || "已隐藏历史 Key" }}</span>
               <button class="icon-button" type="button" @click="copyApiKey(user)" :disabled="!user.api_key" aria-label="复制 API Key">
                 <Copy :size="17" />
@@ -317,52 +251,54 @@ onBeforeUnmount(() => {
               <span v-else class="badge muted">普通</span>
             </td>
             <td><span class="badge" :class="{ on: user.enabled, off: !user.enabled }">{{ user.enabled ? "启用" : "停用" }}</span></td>
-            <td class="actions">
+            <td style="width: 1%; white-space: nowrap;">
               <button class="icon-button" type="button" @click="openEdit(user)" aria-label="编辑用户"><Pencil :size="17" /></button>
-              <button class="icon-button danger" type="button" @click="remove(user)" aria-label="删除用户"><Trash2 :size="17" /></button>
+              <button class="icon-button" type="button" @click="remove(user)" aria-label="删除用户" style="color: var(--color-error);"><Trash2 :size="17" /></button>
             </td>
           </tr>
           <tr v-if="!users.length">
-            <td class="empty-row" colspan="7">暂无用户。创建用户后即可用于客户端调用。</td>
+            <td class="empty-row" colspan="6">暂无用户。创建用户后即可用于客户端调用。</td>
           </tr>
         </tbody>
       </table>
     </section>
 
     <div v-if="modalOpen" class="modal-backdrop" role="presentation" @click.self="closeModal">
-      <section class="modal modal-narrow" role="dialog" aria-modal="true" aria-labelledby="user-dialog-title">
+      <section class="modal" role="dialog" aria-modal="true">
         <header class="modal-header">
           <div>
             <p class="eyebrow">用户</p>
-            <h2 id="user-dialog-title">{{ form.id ? "编辑用户" : "新建用户" }}</h2>
+            <h2>{{ form.id ? "编辑用户" : "新建用户" }}</h2>
           </div>
           <button class="icon-button" type="button" @click="closeModal" aria-label="关闭"><X :size="18" /></button>
         </header>
 
-        <form class="panel plain-panel" @submit.prevent="save">
-          <label>名称 <input v-model="form.name" required placeholder="default-user"></label>
-          <div class="input-action">
-            <label>
-              API Key
-              <input v-model="form.api_key" autocomplete="off" :required="!form.id" placeholder="sk-aiapi-...">
-            </label>
-            <button class="icon-button" type="button" @click="generateApiKey" aria-label="生成 API Key">
-              <KeyRound :size="17" />
-            </button>
-          </div>
-          <fieldset>
-            <legend>可用模型</legend>
-            <p class="form-hint">不勾选表示允许访问全部公开模型。</p>
-            <label v-for="model in models" :key="model.model" class="check-row">
-              <input v-model="form.allowed_models" type="checkbox" :value="model.model">
-              <span>{{ model.model }}</span>
-            </label>
-            <p v-if="!models.length" class="form-hint">暂无公开模型，请先在渠道页面配置模型映射。</p>
-          </fieldset>
-          <label class="switch"><input v-model="form.is_default" type="checkbox"> 设为默认 API</label>
-          <label class="switch"><input v-model="form.enabled" type="checkbox"> 启用</label>
-          <button type="submit" :disabled="saving">{{ saving ? "保存中" : (form.id ? "更新用户" : "创建用户") }}</button>
-        </form>
+        <div class="modal-body">
+          <form @submit.prevent="save" style="display: flex; flex-direction: column; gap: 16px;">
+            <label>名称 <input v-model="form.name" required placeholder="default-user"></label>
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
+              <label>
+                API Key
+                <input v-model="form.api_key" autocomplete="off" :required="!form.id" placeholder="sk-aiapi-...">
+              </label>
+              <button class="icon-button" type="button" @click="generateApiKey" aria-label="生成 API Key">
+                <KeyRound :size="17" />
+              </button>
+            </div>
+            <fieldset style="border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+              <legend style="color: var(--text-secondary); font-size: 14px; font-weight: 600; padding: 0 8px;">可用模型</legend>
+              <p style="color: var(--text-muted); font-size: 13px; margin: 0;">不勾选表示允许访问全部公开模型。</p>
+              <label v-for="model in models" :key="model.model" style="flex-direction: row; align-items: center; gap: 8px;">
+                <input v-model="form.allowed_models" type="checkbox" :value="model.model" style="width: auto; min-height: auto;">
+                <span>{{ model.model }}</span>
+              </label>
+              <p v-if="!models.length" style="color: var(--text-muted); font-size: 13px; margin: 0;">暂无公开模型，请先在渠道页面配置模型映射。</p>
+            </fieldset>
+            <label style="flex-direction: row; align-items: center;"><input v-model="form.is_default" type="checkbox" style="width: auto; min-height: auto;"> 设为默认 API</label>
+            <label style="flex-direction: row; align-items: center;"><input v-model="form.enabled" type="checkbox" style="width: auto; min-height: auto;"> 启用</label>
+            <button type="submit" :disabled="saving">{{ saving ? "保存中" : (form.id ? "更新用户" : "创建用户") }}</button>
+          </form>
+        </div>
       </section>
     </div>
   </section>

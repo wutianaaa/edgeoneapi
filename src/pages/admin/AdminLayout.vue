@@ -8,9 +8,7 @@ import {
   MessageSquare,
   Moon,
   RadioTower,
-  ShieldCheck,
   Sun,
-  UserRound,
   Users
 } from "@lucide/vue";
 import { getAdminSession, loginAdmin, logoutAdmin } from "../../services/api.js";
@@ -22,33 +20,10 @@ const router = useRouter();
 const route = useRoute();
 
 const navItems = [
-  {
-    to: "/chat",
-    label: "Chat",
-    icon: MessageSquare,
-    description: "面向开发者的对话工作台，专注提示词、模型切换和响应观察。"
-  },
-  {
-    to: "/channels",
-    label: "Channels",
-    icon: RadioTower,
-    description: "统一管理上游通道、权重分配和公开模型映射。",
-    requiresAdmin: true
-  },
-  {
-    to: "/users",
-    label: "Users",
-    icon: Users,
-    description: "管理 API Key、默认访问策略和模型可见范围。",
-    requiresAdmin: true
-  },
-  {
-    to: "/health",
-    label: "Health",
-    icon: Activity,
-    description: "监控熔断器、成功率和延迟，快速发现上游问题。",
-    requiresAdmin: true
-  }
+  { to: "/chat", label: "Chat", icon: MessageSquare },
+  { to: "/channels", label: "Channels", icon: RadioTower, requiresAdmin: true },
+  { to: "/users", label: "Users", icon: Users, requiresAdmin: true },
+  { to: "/health", label: "Health", icon: Activity, requiresAdmin: true }
 ];
 
 const username = ref(localStorage.getItem(ADMIN_USER_KEY) || "admin");
@@ -56,18 +31,17 @@ const password = ref("");
 const authenticated = ref(false);
 const checkingAuth = ref(true);
 const authError = ref("");
-const theme = ref(localStorage.getItem(THEME_KEY) || "light");
+const theme = ref(localStorage.getItem(THEME_KEY) || "dark");
 
-const currentItem = computed(() => (
-  navItems.find((item) => route.path === item.to || route.path.startsWith(`${item.to}/`)) || navItems[0]
-));
 const requiresAdmin = computed(() => Boolean(route.meta.requiresAdmin));
 
 function applyTheme() {
-  if (theme.value === "dark") {
-    document.documentElement.classList.add("dark");
-  } else {
+  if (theme.value === "light") {
+    document.documentElement.classList.add("light");
     document.documentElement.classList.remove("dark");
+  } else {
+    document.documentElement.classList.remove("light");
+    document.documentElement.classList.add("dark");
   }
 }
 
@@ -142,15 +116,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="workbench-shell">
+  <div class="workbench-shell">
     <header class="workbench-header">
       <div class="workbench-header-inner">
         <RouterLink class="workbench-brand" to="/chat">
           <span class="workbench-brand-mark" aria-hidden="true"></span>
-          <span class="workbench-brand-copy">
-            <strong>EdgeOne AI</strong>
-            <small>Developer Gateway</small>
-          </span>
+          <span>EdgeOne AI</span>
         </RouterLink>
 
         <nav class="workbench-nav" aria-label="Primary navigation">
@@ -165,10 +136,9 @@ onBeforeUnmount(() => {
           </RouterLink>
         </nav>
 
-        <div class="workbench-actions">
-          <span class="workbench-pill">Blue Console</span>
+        <div style="display: flex; align-items: center; gap: 12px; margin-left: auto;">
           <button
-            class="theme-toggle"
+            class="icon-button"
             type="button"
             @click="toggleTheme"
             :aria-label="theme === 'light' ? '切换到深色模式' : '切换到浅色模式'"
@@ -176,16 +146,15 @@ onBeforeUnmount(() => {
             <Moon v-if="theme === 'light'" :size="18" />
             <Sun v-else :size="18" />
           </button>
-          <button v-if="!authenticated" class="secondary compact-button" type="button" @click="openAdminSurface">
+
+          <button v-if="!authenticated" class="secondary" type="button" @click="openAdminSurface">
             <KeyRound :size="16" />
             Admin
           </button>
+
           <template v-else>
-            <div class="admin-account">
-              <UserRound :size="16" />
-              <span>{{ username }}</span>
-            </div>
-            <button class="secondary compact-button" type="button" @click="logout">
+            <span class="badge">{{ username }}</span>
+            <button class="secondary" type="button" @click="logout">
               <LogOut :size="16" />
               退出
             </button>
@@ -194,89 +163,44 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <section class="workbench-main">
-      <div class="workbench-main-inner">
-        <aside class="workbench-sidebar">
-          <section class="workbench-side-card workbench-side-hero">
-            <p class="eyebrow">Unified Workbench</p>
-            <h2>{{ currentItem.label }}</h2>
-            <p>{{ currentItem.description }}</p>
-          </section>
-
-          <section class="workbench-side-card">
-            <p class="eyebrow">Why This Structure</p>
-            <ul class="context-list">
-              <li>聊天和管理现在共用同一套入口与导航层级。</li>
-              <li>布局首先服务开发者：先看状态、路由和配置，再进入操作。</li>
-              <li>整套界面统一为蓝色系、低噪音、高对比的极简工作台。</li>
-            </ul>
-          </section>
-
-          <section class="workbench-side-card">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Access</p>
-                <h3>Console State</h3>
-              </div>
-              <span class="badge" :class="authenticated ? 'on' : 'muted'">
-                {{ authenticated ? "Unlocked" : "Protected" }}
-              </span>
-            </div>
-            <div class="context-metric">
-              <span>Current surface</span>
-              <strong>{{ currentItem.label }}</strong>
-            </div>
-            <div class="context-metric">
-              <span>Admin scope</span>
-              <strong>{{ authenticated ? "Enabled" : "Sign-in required" }}</strong>
-            </div>
-            <div class="context-metric">
-              <span>Theme</span>
-              <strong>{{ theme === "dark" ? "Dark" : "Light" }}</strong>
-            </div>
-          </section>
-        </aside>
-
-        <section class="workbench-stage">
-          <div v-if="requiresAdmin && checkingAuth" class="loading-state">
-            <ShieldCheck :size="32" class="spinning" />
-            <p>正在校验管理会话...</p>
-          </div>
-
-          <div v-else-if="requiresAdmin && !authenticated" class="auth-gate">
-            <section class="auth-panel">
-              <div class="auth-panel-copy">
-                <p class="eyebrow">Protected Surface</p>
-                <h1>{{ currentItem.label }}</h1>
-                <p class="page-description">
-                  管理页面需要管理员 Token。登录后会保留当前路由，你可以在聊天和管理之间连续切换，不再丢失上下文。
-                </p>
-              </div>
-
-              <form class="panel plain-panel auth-form" @submit.prevent="login">
-                <label>
-                  用户名
-                  <input v-model="username" autocomplete="username" required placeholder="admin">
-                </label>
-                <label>
-                  管理 Token
-                  <input
-                    v-model="password"
-                    type="password"
-                    autocomplete="current-password"
-                    required
-                    placeholder="ADMIN_TOKEN"
-                  >
-                </label>
-                <p v-if="authError" class="notice error">{{ authError }}</p>
-                <button type="submit">进入 {{ currentItem.label }}</button>
-              </form>
-            </section>
-          </div>
-
-          <RouterView v-else />
-        </section>
+    <main class="workbench-main">
+      <div v-if="requiresAdmin && checkingAuth" class="loading-state">
+        <Activity :size="32" class="spinning" />
+        <p>正在校验管理会话...</p>
       </div>
-    </section>
-  </main>
+
+      <div v-else-if="requiresAdmin && !authenticated" style="min-height: 60vh; display: grid; place-items: center;">
+        <div class="panel" style="width: min(480px, 100%); gap: 24px;">
+          <div>
+            <p class="eyebrow">Protected</p>
+            <h1 style="margin-top: 8px;">管理员登录</h1>
+            <p class="page-description" style="margin-top: 12px;">
+              需要管理员权限才能访问此页面
+            </p>
+          </div>
+
+          <form @submit.prevent="login" style="display: flex; flex-direction: column; gap: 16px;">
+            <label>
+              用户名
+              <input v-model="username" autocomplete="username" required placeholder="admin">
+            </label>
+            <label>
+              管理 Token
+              <input
+                v-model="password"
+                type="password"
+                autocomplete="current-password"
+                required
+                placeholder="ADMIN_TOKEN"
+              >
+            </label>
+            <p v-if="authError" class="notice error">{{ authError }}</p>
+            <button type="submit">登录</button>
+          </form>
+        </div>
+      </div>
+
+      <RouterView v-else />
+    </main>
+  </div>
 </template>
