@@ -32,12 +32,13 @@ describe("/p proxy route", () => {
     });
 
     expect(fetch).toHaveBeenCalledTimes(1);
-    const [forwardedRequest] = fetch.mock.calls[0];
-    expect(forwardedRequest.url).toBe("https://sub2api.luciferai.cc/v1/chat/completions?foo=bar");
-    expect(forwardedRequest.method).toBe("POST");
-    expect(forwardedRequest.headers.get("content-type")).toBe("application/json");
-    expect(forwardedRequest.headers.get("authorization")).toBe("Bearer test-key");
-    await expect(forwardedRequest.text()).resolves.toBe(JSON.stringify({ hello: "world" }));
+    const [forwardedUrl, forwardedInit] = fetch.mock.calls[0];
+    expect(forwardedUrl).toBe("https://sub2api.luciferai.cc/v1/chat/completions?foo=bar");
+    expect(forwardedInit.method).toBe("POST");
+    expect(forwardedInit.headers.get("content-type")).toBe("application/json");
+    expect(forwardedInit.headers.get("authorization")).toBe("Bearer test-key");
+    const forwardedBody = await new Response(forwardedInit.body).text();
+    expect(forwardedBody).toBe(JSON.stringify({ hello: "world" }));
 
     expect(response.status).toBe(201);
     await expect(response.text()).resolves.toBe("upstream-ok");
