@@ -48,6 +48,7 @@ The frontend runs at `http://127.0.0.1:5173`.
 Start with EdgeOne Pages Functions:
 
 ```bash
+edgeone pages env pull
 npm run edgeone:dev
 ```
 
@@ -84,6 +85,7 @@ The frontend build output is written to `dist/`.
 Deploy the built site to EdgeOne Pages:
 
 ```bash
+edgeone pages env set ADMIN_TOKEN <your-admin-token>
 npm run build
 edgeone pages deploy dist --name aiapi --env production
 ```
