@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "dev:api": "node dev-server.js",
-    "dev:full": "npm run dev:api & npm run dev",
+    "edgeone:dev": "edgeone pages dev --skip-env-sync",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run --coverage",

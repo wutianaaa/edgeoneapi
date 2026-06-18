@@ -257,9 +257,6 @@ POST   /api/admin/models/fetch    - 获取上游模型
 - `FEATURES.md` - 功能列表
 - `CIRCUIT_BREAKER.md` - 熔断器和性能监控文档 ⭐
 - `ROADMAP.md` - 功能规划 ⭐
-- `COMPLETION_SUMMARY.md` - 完善总结 ⭐
-- `TODO.md` - 功能补充建议 ⭐
-- `FEATURE_SUGGESTIONS.md` - 功能建议详细版 ⭐
 
 #### 🔧 技术实现
 

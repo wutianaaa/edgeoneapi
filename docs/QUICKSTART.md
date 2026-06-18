@@ -62,9 +62,9 @@ aiapi/
 │   ├── App.vue
 │   ├── router.js
 │   └── main.js
-├── functions/                     # EdgeOne Functions（后端）
-├── FEATURES.md                    # 新功能详细说明
-├── README.md                      # 项目文档
+├── edge-functions/                # EdgeOne Functions（后端）
+├── docs/FEATURES.md               # 新功能详细说明
+├── README.md                      # 项目入口
 └── package.json
 ```
 
@@ -146,7 +146,7 @@ npm run check
 
 如有问题，请查看：
 1. [FEATURES.md](./FEATURES.md) - 详细功能说明
-2. [README.md](./README.md) - 项目文档
+2. [README.md](../README.md) - 项目入口
 3. GitHub Issues（如果开源）
 
 ---

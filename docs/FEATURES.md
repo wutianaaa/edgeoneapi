@@ -227,9 +227,9 @@
 
 ## 📖 相关文档
 
-- [README.md](./README.md) - 项目概述和部署指南
+- [README.md](../README.md) - 项目入口
 - [FEATURES.md](./FEATURES.md) - 新功能详细说明（本文档）
-- [package.json](./package.json) - 项目依赖
+- [package.json](../package.json) - 项目依赖
 
 ---
 
