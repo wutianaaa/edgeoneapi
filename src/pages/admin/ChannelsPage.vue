@@ -32,6 +32,7 @@ const channelTypes = [
 
 const channels = ref([]);
 const models = ref([]);
+const NO_CHANNEL_ID = "__aiapi_no_channels__";
 const loading = ref(false);
 const saving = ref(false);
 const modalOpen = ref(false);
@@ -52,7 +53,8 @@ function emptyChannel() {
     base_url: type.baseUrl,
     api_key: "",
     enabled: true,
-    weight: 1
+    weight: 1,
+    model_ids: []
   };
 }
 
@@ -70,13 +72,92 @@ function channelModelCount(channelId) {
 
 function channelModels(channelId) {
   return models.value.filter((model) => {
-    const channelIds = Array.isArray(model.channel_ids) ? model.channel_ids : [];
-    return channelIds.length === 0 || channelIds.includes(channelId);
+    return modelAppliesToChannel(model, channelId);
   });
 }
 
 function modelLabel(model) {
   return model.model || model.upstream_model || "unknown";
+}
+
+function modelChannelIds(model) {
+  return Array.isArray(model.channel_ids) ? model.channel_ids.map(String).filter(Boolean) : [];
+}
+
+function modelAppliesToChannel(model, channelId) {
+  const channelIds = modelChannelIds(model);
+  return channelIds.length === 0 || channelIds.includes(channelId);
+}
+
+function selectedModelIdsForChannel(channelId) {
+  if (!channelId) {
+    return models.value
+      .filter((model) => modelChannelIds(model).length === 0)
+      .map((model) => model.model)
+      .filter(Boolean);
+  }
+  return channelModels(channelId).map((model) => model.model).filter(Boolean);
+}
+
+function sameChannelIds(left, right) {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  if (leftSet.size !== rightSet.size) return false;
+  return [...leftSet].every((item) => rightSet.has(item));
+}
+
+function explicitOtherChannelIds(channelId) {
+  const channelIds = [...new Set([
+    ...channels.value.map((channel) => channel.id),
+    channelId
+  ].map(String).filter(Boolean))].filter((id) => id !== channelId);
+  return channelIds.length ? channelIds : [NO_CHANNEL_ID];
+}
+
+function nextModelChannelIds(model, channelId, selected) {
+  const current = modelChannelIds(model);
+  if (selected) {
+    return current.length === 0 ? [] : [...new Set([
+      ...current.filter((id) => id !== NO_CHANNEL_ID),
+      channelId
+    ])];
+  }
+  if (current.length === 0) {
+    return explicitOtherChannelIds(channelId);
+  }
+  const next = current.filter((id) => id !== channelId && id !== NO_CHANNEL_ID);
+  return next.length ? next : [NO_CHANNEL_ID];
+}
+
+async function syncChannelModels(channelId) {
+  if (!channelId) {
+    throw new Error("Channel id is required before saving model mappings.");
+  }
+  const selected = new Set((form.model_ids || []).map(String).filter(Boolean));
+  const updates = models.value.map((model) => {
+    if (!model.model) return null;
+    const channelIds = nextModelChannelIds(model, channelId, selected.has(model.model));
+    if (sameChannelIds(modelChannelIds(model), channelIds)) return null;
+    return adminRequest(`/api/admin/models/${encodeURIComponent(model.model)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...model,
+        channel_ids: channelIds
+      })
+    });
+  }).filter(Boolean);
+  await Promise.all(updates);
+}
+
+function channelPayload() {
+  return {
+    name: form.name,
+    type: form.type,
+    base_url: form.base_url,
+    api_key: form.api_key,
+    enabled: form.enabled,
+    weight: Number(form.weight || 0)
+  };
 }
 
 function closeModal() {
@@ -132,6 +213,7 @@ function openNew() {
   notice.value = "";
   error.value = "";
   Object.assign(form, emptyChannel());
+  form.model_ids = selectedModelIdsForChannel("");
   modalOpen.value = true;
 }
 
@@ -145,7 +227,8 @@ async function openEdit(channel) {
     base_url: channel.base_url,
     api_key: "",
     enabled: Boolean(channel.enabled),
-    weight: channel.weight || 0
+    weight: channel.weight || 0,
+    model_ids: selectedModelIdsForChannel(channel.id)
   });
   modalOpen.value = true;
 
@@ -154,7 +237,8 @@ async function openEdit(channel) {
     Object.assign(form, {
       ...form,
       ...body.data,
-      api_key: body.data.api_key || ""
+      api_key: body.data.api_key || "",
+      model_ids: selectedModelIdsForChannel(channel.id)
     });
   } catch (cause) {
     error.value = cause.message;
@@ -172,22 +256,26 @@ async function saveChannel() {
   saving.value = true;
   notice.value = "";
   error.value = "";
-  const payload = { ...form, weight: Number(form.weight || 0) };
+  const payload = channelPayload();
 
   try {
+    let channelId = form.id;
     if (form.id) {
-      await adminRequest(`/api/admin/channels/${encodeURIComponent(form.id)}`, {
+      const body = await adminRequest(`/api/admin/channels/${encodeURIComponent(form.id)}`, {
         method: "PUT",
         body: JSON.stringify(payload)
       });
+      channelId = body.data?.id || channelId;
     } else {
-      await adminRequest("/api/admin/channels", {
+      const body = await adminRequest("/api/admin/channels", {
         method: "POST",
         body: JSON.stringify(payload)
       });
+      channelId = body.data?.id || channelId;
     }
 
-    notice.value = "渠道已保存。";
+    await syncChannelModels(channelId);
+    notice.value = "渠道和模型映射已保存。";
     closeModal();
     await load();
   } catch (cause) {
@@ -345,6 +433,15 @@ onBeforeUnmount(() => {
             <label>基础 URL <input v-model="form.base_url" required :placeholder="selectedChannelType.baseUrl"></label>
             <label>API Key <input v-model="form.api_key" type="password" autocomplete="off" :placeholder="selectedChannelType.apiKeyPlaceholder"></label>
             <label>权重 <input v-model="form.weight" type="number" min="0" step="1"></label>
+            <fieldset class="model-picker">
+              <legend>模型映射</legend>
+              <p>勾选后，该公开模型会使用当前渠道作为可用上游。</p>
+              <label v-for="model in models" :key="model.model" class="model-option">
+                <input v-model="form.model_ids" type="checkbox" :value="model.model">
+                <span>{{ modelLabel(model) }}</span>
+              </label>
+              <p v-if="!models.length">暂无公开模型，请先通过模型同步或 API 创建模型映射。</p>
+            </fieldset>
             <label style="flex-direction: row; align-items: center;"><input v-model="form.enabled" type="checkbox" style="width: auto; min-height: auto;"> 启用</label>
             <button type="submit" :disabled="saving">{{ saving ? "保存中" : "保存渠道" }}</button>
           </form>
@@ -387,5 +484,41 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+
+.model-picker {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.model-picker legend {
+  padding: 0 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.model-picker p {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.model-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.model-option input {
+  width: auto;
+  min-height: auto;
 }
 </style>
