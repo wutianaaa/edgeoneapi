@@ -59,6 +59,20 @@ export async function fetchUpstreamModels(channelIds = []) {
   });
 }
 
+export async function fetchUpstreamModelsForChannel(channel) {
+  return adminRequest("/api/admin/models/fetch", {
+    method: "POST",
+    body: JSON.stringify({ channel })
+  });
+}
+
+export async function syncChannelModels(payload) {
+  return adminRequest("/api/admin/models/sync", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 async function readResponse(response) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {

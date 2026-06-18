@@ -3,10 +3,12 @@ import {
   adminRequest,
   chatRequest,
   fetchUpstreamModels,
+  fetchUpstreamModelsForChannel,
   getAdminSession,
   listPublicModels,
   loginAdmin,
-  logoutAdmin
+  logoutAdmin,
+  syncChannelModels
 } from "../src/services/api.js";
 
 describe("api services", () => {
@@ -145,6 +147,58 @@ describe("api services", () => {
       method: "POST",
       credentials: "include",
       body: JSON.stringify({ channel_ids: ["ch_1", "ch_2"] }),
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+  });
+
+  it("posts a preview channel when fetching upstream models for save flow", async () => {
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "gpt-4o-mini" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    }));
+
+    await fetchUpstreamModelsForChannel({
+      type: "openai",
+      base_url: "https://api.openai.com/v1",
+      api_key: "sk-test"
+    });
+
+    expect(fetch).toHaveBeenCalledWith("/api/admin/models/fetch", {
+      method: "POST",
+      credentials: "include",
+      body: JSON.stringify({
+        channel: {
+          type: "openai",
+          base_url: "https://api.openai.com/v1",
+          api_key: "sk-test"
+        }
+      }),
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+  });
+
+  it("posts selected models when syncing a channel mapping", async () => {
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    }));
+
+    await syncChannelModels({
+      channel_id: "ch_1",
+      model_ids: ["gpt-4o-mini", "gpt-4.1"]
+    });
+
+    expect(fetch).toHaveBeenCalledWith("/api/admin/models/sync", {
+      method: "POST",
+      credentials: "include",
+      body: JSON.stringify({
+        channel_id: "ch_1",
+        model_ids: ["gpt-4o-mini", "gpt-4.1"]
+      }),
       headers: {
         "Content-Type": "application/json"
       }

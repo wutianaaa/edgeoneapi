@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { Download, Pencil, Plus, RefreshCw, Trash2, X } from "@lucide/vue";
-import { adminRequest } from "../../services/api.js";
+import { adminRequest, fetchUpstreamModelsForChannel, syncChannelModels as syncChannelModelsApi } from "../../services/api.js";
 
 const channelTypes = [
   {
@@ -32,12 +32,13 @@ const channelTypes = [
 
 const channels = ref([]);
 const models = ref([]);
-const NO_CHANNEL_ID = "__aiapi_no_channels__";
 const loading = ref(false);
 const saving = ref(false);
 const modalOpen = ref(false);
 const notice = ref("");
 const error = ref("");
+const upstreamModels = ref([]);
+const syncingModels = ref(false);
 const form = reactive(emptyChannel());
 
 const enabledChannels = computed(() => channels.value.filter((channel) => channel.enabled).length);
@@ -99,54 +100,32 @@ function selectedModelIdsForChannel(channelId) {
   return channelModels(channelId).map((model) => model.model).filter(Boolean);
 }
 
-function sameChannelIds(left, right) {
-  const leftSet = new Set(left);
-  const rightSet = new Set(right);
-  if (leftSet.size !== rightSet.size) return false;
-  return [...leftSet].every((item) => rightSet.has(item));
-}
-
-function explicitOtherChannelIds(channelId) {
-  const channelIds = [...new Set([
-    ...channels.value.map((channel) => channel.id),
-    channelId
-  ].map(String).filter(Boolean))].filter((id) => id !== channelId);
-  return channelIds.length ? channelIds : [NO_CHANNEL_ID];
-}
-
-function nextModelChannelIds(model, channelId, selected) {
-  const current = modelChannelIds(model);
-  if (selected) {
-    return current.length === 0 ? [] : [...new Set([
-      ...current.filter((id) => id !== NO_CHANNEL_ID),
-      channelId
-    ])];
+const selectableModels = computed(() => {
+  const upstreamIds = upstreamModels.value
+    .map((item) => String(item?.id || "").trim())
+    .filter(Boolean);
+  if (upstreamIds.length) {
+    return [...new Set(upstreamIds)].sort((left, right) => left.localeCompare(right));
   }
-  if (current.length === 0) {
-    return explicitOtherChannelIds(channelId);
-  }
-  const next = current.filter((id) => id !== channelId && id !== NO_CHANNEL_ID);
-  return next.length ? next : [NO_CHANNEL_ID];
-}
+  return models.value
+    .map((model) => model.model)
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+});
 
 async function syncChannelModels(channelId) {
+  const body = await syncChannelModelsRequest(channelId);
+  models.value = body.data || [];
+}
+
+async function syncChannelModelsRequest(channelId) {
   if (!channelId) {
     throw new Error("Channel id is required before saving model mappings.");
   }
-  const selected = new Set((form.model_ids || []).map(String).filter(Boolean));
-  const updates = models.value.map((model) => {
-    if (!model.model) return null;
-    const channelIds = nextModelChannelIds(model, channelId, selected.has(model.model));
-    if (sameChannelIds(modelChannelIds(model), channelIds)) return null;
-    return adminRequest(`/api/admin/models/${encodeURIComponent(model.model)}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        ...model,
-        channel_ids: channelIds
-      })
-    });
-  }).filter(Boolean);
-  await Promise.all(updates);
+  return syncChannelModelsApi({
+    channel_id: channelId,
+    model_ids: form.model_ids
+  });
 }
 
 function channelPayload() {
@@ -162,6 +141,8 @@ function channelPayload() {
 
 function closeModal() {
   modalOpen.value = false;
+  upstreamModels.value = [];
+  syncingModels.value = false;
 }
 
 async function load() {
@@ -214,6 +195,7 @@ function openNew() {
   error.value = "";
   Object.assign(form, emptyChannel());
   form.model_ids = selectedModelIdsForChannel("");
+  upstreamModels.value = [];
   modalOpen.value = true;
 }
 
@@ -230,6 +212,7 @@ async function openEdit(channel) {
     weight: channel.weight || 0,
     model_ids: selectedModelIdsForChannel(channel.id)
   });
+  upstreamModels.value = channelModels(channel.id).map((model) => ({ id: model.model }));
   modalOpen.value = true;
 
   try {
@@ -240,6 +223,7 @@ async function openEdit(channel) {
       api_key: body.data.api_key || "",
       model_ids: selectedModelIdsForChannel(channel.id)
     });
+    await refreshUpstreamModels();
   } catch (cause) {
     error.value = cause.message;
   }
@@ -249,6 +233,36 @@ function updateChannelType(type) {
   form.type = type;
   if (!form.id) {
     form.base_url = channelTypeConfig(type).baseUrl;
+  }
+  upstreamModels.value = [];
+}
+
+async function refreshUpstreamModels() {
+  const previewChannel = {
+    id: form.id,
+    name: form.name,
+    type: form.type,
+    base_url: form.base_url,
+    api_key: form.api_key,
+    enabled: form.enabled,
+    weight: Number(form.weight || 0)
+  };
+
+  if (!previewChannel.type || !previewChannel.base_url || !previewChannel.api_key) {
+    upstreamModels.value = [];
+    return;
+  }
+
+  syncingModels.value = true;
+  try {
+    const body = await fetchUpstreamModelsForChannel(previewChannel);
+    upstreamModels.value = Array.isArray(body.data) ? body.data : [];
+    const available = new Set(upstreamModels.value.map((item) => String(item?.id || "").trim()).filter(Boolean));
+    if (available.size) {
+      form.model_ids = (form.model_ids || []).filter((modelId) => available.has(modelId));
+    }
+  } finally {
+    syncingModels.value = false;
   }
 }
 
@@ -274,6 +288,7 @@ async function saveChannel() {
       channelId = body.data?.id || channelId;
     }
 
+    await refreshUpstreamModels();
     await syncChannelModels(channelId);
     notice.value = "渠道和模型映射已保存。";
     closeModal();
@@ -435,12 +450,16 @@ onBeforeUnmount(() => {
             <label>权重 <input v-model="form.weight" type="number" min="0" step="1"></label>
             <fieldset class="model-picker">
               <legend>模型映射</legend>
-              <p>勾选后，该公开模型会使用当前渠道作为可用上游。</p>
-              <label v-for="model in models" :key="model.model" class="model-option">
-                <input v-model="form.model_ids" type="checkbox" :value="model.model">
-                <span>{{ modelLabel(model) }}</span>
+              <p>保存时会先从上游拉取当前渠道支持的模型，再按勾选结果写入映射。</p>
+              <button class="secondary" type="button" @click="refreshUpstreamModels" :disabled="syncingModels" style="align-self: flex-start;">
+                <RefreshCw :size="16" :class="{ spinning: syncingModels }" />
+                {{ syncingModels ? "同步中" : "从上游获取模型" }}
+              </button>
+              <label v-for="modelId in selectableModels" :key="modelId" class="model-option">
+                <input v-model="form.model_ids" type="checkbox" :value="modelId">
+                <span>{{ modelId }}</span>
               </label>
-              <p v-if="!models.length">暂无公开模型，请先通过模型同步或 API 创建模型映射。</p>
+              <p v-if="!selectableModels.length">暂无可选模型，请先填写有效渠道配置并从上游获取模型。</p>
             </fieldset>
             <label style="flex-direction: row; align-items: center;"><input v-model="form.enabled" type="checkbox" style="width: auto; min-height: auto;"> 启用</label>
             <button type="submit" :disabled="saving">{{ saving ? "保存中" : "保存渠道" }}</button>

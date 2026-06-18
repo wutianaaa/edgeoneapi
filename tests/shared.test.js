@@ -6,6 +6,8 @@ import {
   getChannelPerformance,
   getPerformanceWindow,
   getPerformanceWindows,
+  handleAdminRequest,
+  handleChatCompletions,
   getUserUsageStats,
   listChannels,
   recordPerformance,
@@ -361,5 +363,229 @@ describe("fetchWithRetry", () => {
     expect(error.message).toBe("connection refused");
     expect(error.cause).toBe(networkError);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("channel model sync", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-18T08:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("syncs upstream models into channel mappings and routes chat by channel-specific upstream model", async () => {
+    const kv = createMockKv({
+      "channel_ch_openai": {
+        id: "ch_openai",
+        name: "OpenAI",
+        type: "openai",
+        base_url: "https://openai.example/v1",
+        api_key: "sk-openai",
+        enabled: true,
+        weight: 10
+      },
+      "channel_ch_gemini": {
+        id: "ch_gemini",
+        name: "Gemini",
+        type: "gemini",
+        base_url: "https://gemini.example/v1beta",
+        api_key: "gem-key",
+        enabled: true,
+        weight: 1
+      },
+      "user_usr_1": {
+        id: "usr_1",
+        name: "demo",
+        key_hash: "aa",
+        api_key: "sk-demo",
+        allowed_models: [],
+        is_default: false,
+        enabled: true,
+        created_at: "2026-06-18T07:00:00.000Z",
+        updated_at: "2026-06-18T07:00:00.000Z"
+      },
+      "userkey_aa": "usr_1",
+      "model_6770742d346f": {
+        model: "gpt-4o",
+        upstream_model: "gpt-4o",
+        channel_ids: ["ch_openai"],
+        channel_mappings: {
+          ch_openai: "gpt-4o"
+        },
+        updated_at: "2026-06-18T07:00:00.000Z"
+      }
+    });
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (String(url) === "https://gemini.example/v1beta/models") {
+        return new Response(JSON.stringify({
+          models: [
+            { name: "models/gemini-2.5-pro" },
+            { name: "models/gemini-2.5-flash" }
+          ]
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (String(url) === "https://gemini.example/v1beta/models/gemini-2.5-pro:generateContent") {
+        return new Response(JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: "ok" }]
+              }
+            }
+          ],
+          usageMetadata: {
+            promptTokenCount: 1,
+            candidatesTokenCount: 1,
+            totalTokenCount: 2
+          }
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (String(url).includes("/chat/completions")) {
+        return new Response(JSON.stringify({
+          id: "chatcmpl-1",
+          object: "chat.completion",
+          created: 1,
+          model: JSON.parse(options.body).model,
+          choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", {
+      getRandomValues: (array) => {
+        array.fill(1);
+        return array;
+      },
+      subtle: {
+        digest: vi.fn(async (_algorithm, data) => {
+          const text = new TextDecoder().decode(data);
+          if (text === "sk-demo") {
+            return Uint8Array.from([0xaa]).buffer;
+          }
+          throw new Error(`Unexpected digest input: ${text}`);
+        }),
+        importKey: vi.fn(),
+        sign: vi.fn()
+      }
+    });
+
+    const syncResponse = await handleAdminRequest({
+      request: new Request("https://example.test/api/admin/models/sync", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer admin-secret",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          channel_id: "ch_gemini",
+          model_ids: ["gpt-4o", "gemini-2.5-pro"]
+        })
+      }),
+      env: {
+        AIAPI_KV: kv,
+        ADMIN_TOKEN: "admin-secret"
+      }
+    });
+
+    expect(syncResponse.status).toBe(200);
+    const syncBody = await syncResponse.json();
+    expect(syncBody.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        model: "gpt-4o",
+        channel_ids: expect.arrayContaining(["ch_openai", "ch_gemini"]),
+        channel_mappings: expect.objectContaining({
+          ch_openai: "gpt-4o",
+          ch_gemini: "gpt-4o"
+        })
+      }),
+      expect.objectContaining({
+        model: "gemini-2.5-pro",
+        channel_ids: ["ch_gemini"],
+        channel_mappings: {
+          ch_gemini: "gemini-2.5-pro"
+        }
+      })
+    ]));
+
+    const fetchResponse = await handleAdminRequest({
+      request: new Request("https://example.test/api/admin/models/fetch", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer admin-secret",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          channel: {
+            id: "ch_gemini",
+            name: "Gemini",
+            type: "gemini",
+            base_url: "https://gemini.example/v1beta",
+            api_key: "gem-key",
+            enabled: true,
+            weight: 1
+          }
+        })
+      }),
+      env: {
+        AIAPI_KV: kv,
+        ADMIN_TOKEN: "admin-secret"
+      }
+    });
+
+    expect(fetchResponse.status).toBe(200);
+    const fetchBody = await fetchResponse.json();
+    expect(fetchBody.data).toEqual([
+      { id: "gemini-2.5-flash", channel_id: "ch_gemini", channel_name: "Gemini" },
+      { id: "gemini-2.5-pro", channel_id: "ch_gemini", channel_name: "Gemini" }
+    ]);
+
+    const chatResponse = await handleChatCompletions({
+      request: new Request("https://example.test/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer sk-demo",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gemini-2.5-pro",
+          messages: [{ role: "user", content: "hello" }]
+        })
+      }),
+      env: {
+        AIAPI_KV: kv
+      },
+      waitUntil: vi.fn()
+    });
+
+    expect(chatResponse.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://gemini.example/v1beta/models/gemini-2.5-pro:generateContent",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "x-goog-api-key": "gem-key"
+        })
+      })
+    );
   });
 });
