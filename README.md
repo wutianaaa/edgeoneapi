@@ -6,15 +6,15 @@ OpenAI compatible API gateway for EdgeOne Pages. The project includes a Vue admi
 
 ```text
 edgeoneapi/
-├── edge-functions/   # EdgeOne Pages Functions routes
-├── lib/              # Shared gateway logic used by functions
-├── src/              # Vue 3 frontend
-├── public/           # Static files and SPA redirects
-├── tests/            # Vitest tests
-├── docs/             # Project documentation
-├── index.html        # Vite HTML entry
-├── package.json      # Scripts and dependencies
-└── vite.config.js    # Vite and Vitest config
+|-- edge-functions/   # EdgeOne Pages Functions routes
+|-- lib/              # Shared gateway logic used by functions
+|-- src/              # Vue 3 frontend
+|-- public/           # Static files and SPA redirects
+|-- tests/            # Vitest tests
+|-- docs/             # Project documentation
+|-- index.html        # Vite HTML entry
+|-- package.json      # Scripts and dependencies
+`-- vite.config.js    # Vite and Vitest config
 ```
 
 Generated or local-only files are ignored by Git: `.env`, `.edgeone/`, `dist/`, `node_modules/`, IDE files, logs, screenshots, and temporary notes.
@@ -22,21 +22,30 @@ Generated or local-only files are ignored by Git: `.env`, `.edgeone/`, `dist/`, 
 ## Requirements
 
 - Node.js 18 or newer
-- EdgeOne CLI for local Pages Functions development
+- EdgeOne CLI for local Pages Functions development and deployment
 - EdgeOne KV binding named `AIAPI_KV`
 - Environment variable `ADMIN_TOKEN`
 
-## Quick Start
+## Install
 
 ```bash
 npm install
 cp .env.example .env
+```
+
+Edit `.env` and set `ADMIN_TOKEN`.
+
+## Start
+
+Start the Vite frontend:
+
+```bash
 npm run dev
 ```
 
-The Vite frontend runs at `http://127.0.0.1:5173`.
+The frontend runs at `http://127.0.0.1:5173`.
 
-For EdgeOne Pages local development:
+Start with EdgeOne Pages Functions:
 
 ```bash
 npm run edgeone:dev
@@ -48,20 +57,38 @@ If you need to sync cloud project environment variables, link the local folder f
 edgeone pages link
 ```
 
-## Scripts
+## Test
+
+Run unit tests:
 
 ```bash
-npm run dev          # Start Vite frontend
-npm run edgeone:dev  # Start EdgeOne Pages dev server
-npm run build        # Build frontend to dist/
-npm run preview      # Preview built frontend
-npm run check        # Syntax check functions and build frontend
-npm test             # Run Vitest with coverage
+npm test
 ```
 
-## EdgeOne Deploy
+Run syntax checks and production build:
 
-In EdgeOne Pages, use:
+```bash
+npm run check
+```
+
+## Build
+
+```bash
+npm run build
+```
+
+The frontend build output is written to `dist/`.
+
+## Deploy
+
+Deploy the built site to EdgeOne Pages:
+
+```bash
+npm run build
+edgeone pages deploy dist --name aiapi --env production
+```
+
+If you are deploying through the EdgeOne Pages console, use:
 
 ```text
 Build command: npm run build
@@ -72,6 +99,17 @@ Environment: ADMIN_TOKEN=<your-admin-token>
 ```
 
 Do not commit `.env`; use `.env.example` as the template.
+
+## Scripts
+
+```bash
+npm run dev          # Start Vite frontend
+npm run edgeone:dev  # Start EdgeOne Pages dev server
+npm run build        # Build frontend to dist/
+npm run preview      # Preview built frontend
+npm run check        # Syntax check functions and build frontend
+npm test             # Run Vitest with coverage
+```
 
 ## Routes
 
