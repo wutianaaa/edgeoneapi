@@ -82,13 +82,15 @@ The frontend build output is written to `dist/`.
 
 ## Deploy
 
-Deploy the built site to EdgeOne Pages:
+Deploy from the project root so EdgeOne can package both `dist/` and `edge-functions/`:
 
 ```bash
 edgeone pages env set ADMIN_TOKEN <your-admin-token>
-npm run build
-edgeone pages deploy dist --name aiapi --env production
+npm run check
+edgeone pages deploy --name aiapi --env production
 ```
+
+Do not deploy only `dist/`; that uploads the static frontend without EdgeOne Functions, so API routes and KV access will not work correctly.
 
 If you are deploying through the EdgeOne Pages console, use:
 

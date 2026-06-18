@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { Download, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "@lucide/vue";
-import { adminRequest, fetchUpstreamModels } from "../../services/api.js";
+import { Download, Pencil, Plus, RefreshCw, Trash2, X } from "@lucide/vue";
+import { adminRequest } from "../../services/api.js";
 
 const channelTypes = [
   {
@@ -65,7 +65,18 @@ function channelTypeLabel(type) {
 }
 
 function channelModelCount(channelId) {
-  return models.value.filter((model) => (model.channel_ids || []).includes(channelId)).length;
+  return channelModels(channelId).length;
+}
+
+function channelModels(channelId) {
+  return models.value.filter((model) => {
+    const channelIds = Array.isArray(model.channel_ids) ? model.channel_ids : [];
+    return channelIds.length === 0 || channelIds.includes(channelId);
+  });
+}
+
+function modelLabel(model) {
+  return model.model || model.upstream_model || "unknown";
 }
 
 function closeModal() {
@@ -273,7 +284,7 @@ onBeforeUnmount(() => {
             <th>基础 URL</th>
             <th>状态</th>
             <th>权重</th>
-            <th>模型数</th>
+            <th>模型</th>
             <th></th>
           </tr>
         </thead>
@@ -284,7 +295,22 @@ onBeforeUnmount(() => {
             <td class="mono">{{ channel.base_url }}</td>
             <td><span class="badge" :class="{ on: channel.enabled, off: !channel.enabled }">{{ channel.enabled ? "启用" : "停用" }}</span></td>
             <td>{{ channel.weight }}</td>
-            <td>{{ channelModelCount(channel.id) }}</td>
+            <td class="channel-model-cell">
+              <div v-if="channelModelCount(channel.id)" class="channel-model-summary">
+                <span class="badge muted">{{ channelModelCount(channel.id) }} 个</span>
+                <div class="model-chip-list">
+                  <span
+                    v-for="model in channelModels(channel.id)"
+                    :key="model.model"
+                    class="model-chip"
+                    :title="modelLabel(model)"
+                  >
+                    {{ modelLabel(model) }}
+                  </span>
+                </div>
+              </div>
+              <span v-else class="badge muted">暂无模型</span>
+            </td>
             <td style="width: 1%; white-space: nowrap;">
               <button class="icon-button" type="button" @click="openEdit(channel)" aria-label="编辑渠道"><Pencil :size="17" /></button>
               <button class="icon-button" type="button" @click="removeChannel(channel)" aria-label="删除渠道" style="color: var(--color-error);"><Trash2 :size="17" /></button>
@@ -327,3 +353,39 @@ onBeforeUnmount(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.channel-model-cell {
+  min-width: 260px;
+  max-width: 420px;
+}
+
+.channel-model-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.model-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+</style>
