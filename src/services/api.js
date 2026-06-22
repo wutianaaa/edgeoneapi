@@ -52,6 +52,10 @@ export async function listPublicModels() {
   return readResponse(response);
 }
 
+export async function listAdminModels() {
+  return adminRequest("/api/admin/models");
+}
+
 export async function fetchUpstreamModels(channelIds = []) {
   return adminRequest("/api/admin/models/fetch", {
     method: "POST",

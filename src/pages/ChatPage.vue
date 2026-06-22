@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref } from "vue";
 import { ArrowUp, MessageSquare, Plus, RefreshCw, Square, Trash2 } from "@lucide/vue";
 import MarkdownIt from "markdown-it";
-import { chatRequest, listPublicModels } from "../services/api.js";
+import { chatRequest, listPublicModels, listAdminModels, getAdminSession } from "../services/api.js";
 
 const CHAT_SESSIONS_KEY = "aiapi_chat_sessions";
 const CURRENT_SESSION_KEY = "aiapi_chat_current_session";
@@ -181,8 +181,27 @@ async function loadModels() {
   error.value = "";
 
   try {
-    const body = await listPublicModels();
-    availableModels.value = (body.data || []).map((item) => item.id).filter(Boolean);
+    // 检查是否是管理员
+    let isAdmin = false;
+    try {
+      const sessionBody = await getAdminSession();
+      isAdmin = sessionBody.authenticated === true;
+    } catch {
+      isAdmin = false;
+    }
+
+    let models = [];
+    if (isAdmin) {
+      // 管理员：加载所有模型（包括上游模型）
+      const body = await listAdminModels();
+      models = (body.data || []).map((item) => item.model).filter(Boolean);
+    } else {
+      // 普通用户：只加载公开模型
+      const body = await listPublicModels();
+      models = (body.data || []).map((item) => item.id).filter(Boolean);
+    }
+
+    availableModels.value = models;
     if (availableModels.value.length && !availableModels.value.includes(model.value)) {
       model.value = availableModels.value[0];
       localStorage.setItem("aiapi_chat_model", model.value);
