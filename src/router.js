@@ -61,45 +61,10 @@ const router = createRouter({
   ]
 });
 
-// 缓存管理员会话状态
-let adminSessionCache = { valid: false, timestamp: 0 };
-const CACHE_DURATION = 5000; // 5秒缓存
-
-// 路由守卫：验证管理员权限
-router.beforeEach(async (to, from, next) => {
-  // 检查是否需要管理员权限
-  if (to.meta.requiresAdmin) {
-    const now = Date.now();
-
-    // 使用缓存避免频繁API调用
-    if (adminSessionCache.valid && now - adminSessionCache.timestamp < CACHE_DURATION) {
-      next();
-      return;
-    }
-
-    try {
-      // 验证管理员会话
-      await getAdminSession();
-      adminSessionCache = { valid: true, timestamp: now };
-      next();
-    } catch (error) {
-      // 未授权，跳转到聊天页面
-      adminSessionCache = { valid: false, timestamp: 0 };
-      console.warn("Admin authentication required, redirecting to chat");
-
-      // 避免重定向循环
-      if (to.name === "chat") {
-        next();
-      } else {
-        next({
-          name: "chat",
-          query: { redirect: to.fullPath }
-        });
-      }
-    }
-  } else {
-    next();
-  }
+// 不需要路由守卫，AdminLayout 会处理登录流程
+// 直接允许所有导航，让组件自己控制访问权限
+router.beforeEach((to, from, next) => {
+  next();
 });
 
 export default router;
