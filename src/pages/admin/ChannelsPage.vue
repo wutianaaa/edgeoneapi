@@ -478,79 +478,96 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="modal-body">
-          <form @submit.prevent="saveChannel" style="display: flex; flex-direction: column; gap: 16px;">
-            <label>名称 <input v-model="form.name" required :placeholder="selectedChannelType.namePlaceholder"></label>
-            <label>
-              类型
-              <select :value="form.type" required @change="updateChannelType($event.target.value)">
-                <option v-for="type in channelTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
-              </select>
-            </label>
-            <label>基础 URL <input v-model="form.base_url" required :placeholder="selectedChannelType.baseUrl"></label>
-            <label>API Key <input v-model="form.api_key" type="password" autocomplete="off" :placeholder="selectedChannelType.apiKeyPlaceholder"></label>
-            <label>权重 <input v-model="form.weight" type="number" min="0" step="1"></label>
-
-            <fieldset class="model-mapper">
-              <legend>模型映射</legend>
-              <p class="mapper-description">配置公开模型名称及其对应的上游实际模型。公开名称留空时，默认使用上游模型名称。例如：<code>gpt-4</code> → <code>gpt-4o</code>。</p>
-
-              <div class="mapper-actions">
-                <button class="secondary" type="button" @click="refreshUpstreamModels" :disabled="syncingModels">
-                  <RefreshCw :size="16" :class="{ spinning: syncingModels }" />
-                  {{ syncingModels ? "同步中" : "从上游获取可用模型" }}
-                </button>
-                <button class="secondary" type="button" @click="addModelMapping">
-                  <Plus :size="16" />
-                  添加映射
-                </button>
+          <form @submit.prevent="saveChannel" class="channel-form">
+            <!-- 左列：基础配置 -->
+            <div class="form-section">
+              <h3 class="section-title">基础配置</h3>
+              <div class="form-fields">
+                <label>名称 <input v-model="form.name" required :placeholder="selectedChannelType.namePlaceholder"></label>
+                <label>
+                  类型
+                  <select :value="form.type" required @change="updateChannelType($event.target.value)">
+                    <option v-for="type in channelTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
+                  </select>
+                </label>
+                <label>基础 URL <input v-model="form.base_url" required :placeholder="selectedChannelType.baseUrl"></label>
+                <label>API Key <input v-model="form.api_key" type="password" autocomplete="off" :placeholder="selectedChannelType.apiKeyPlaceholder"></label>
+                <label>权重 <input v-model="form.weight" type="number" min="0" step="1"></label>
+                <label style="flex-direction: row; align-items: center;">
+                  <input v-model="form.enabled" type="checkbox" style="width: auto; min-height: auto;">
+                  启用
+                </label>
               </div>
+            </div>
 
-              <div v-if="modelMappings.length > 0" class="mapping-table">
-                <div class="mapping-header">
-                  <div class="mapping-col">公开模型名称</div>
-                  <div class="mapping-col">上游实际模型</div>
-                  <div class="mapping-col-action"></div>
+            <!-- 右列：模型映射 -->
+            <div class="form-section">
+              <h3 class="section-title">模型映射</h3>
+              <div class="mapper-container">
+                <p class="mapper-description">配置公开模型名称及其对应的上游实际模型。公开名称留空时，默认使用上游模型名称。</p>
+
+                <div class="mapper-actions">
+                  <button class="secondary" type="button" @click="refreshUpstreamModels" :disabled="syncingModels">
+                    <RefreshCw :size="16" :class="{ spinning: syncingModels }" />
+                    {{ syncingModels ? "同步中" : "获取模型" }}
+                  </button>
+                  <button class="secondary" type="button" @click="addModelMapping">
+                    <Plus :size="16" />
+                    添加映射
+                  </button>
                 </div>
-                <div v-for="(mapping, index) in modelMappings" :key="index" class="mapping-row">
-                  <div class="mapping-col">
-                    <input
-                      v-model="mapping.publicModel"
-                      placeholder="留空则使用上游名称"
-                      class="mapping-input"
-                    >
+
+                <div v-if="modelMappings.length > 0" class="mapping-table-scroll">
+                  <div class="mapping-header">
+                    <div class="mapping-col">公开名称</div>
+                    <div class="mapping-col">上游模型</div>
+                    <div class="mapping-col-action"></div>
                   </div>
-                  <div class="mapping-col">
-                    <select
-                      v-model="mapping.upstreamModel"
-                      required
-                      class="mapping-select"
-                    >
-                      <option value="">选择上游模型</option>
-                      <option v-for="model in upstreamModels" :key="model.id" :value="model.id">
-                        {{ model.id }}
-                      </option>
-                    </select>
-                  </div>
-                  <div class="mapping-col-action">
-                    <button
-                      class="icon-button"
-                      type="button"
-                      @click="removeModelMapping(index)"
-                      title="删除映射"
-                    >
-                      <Trash2 :size="16" />
-                    </button>
+                  <div v-for="(mapping, index) in modelMappings" :key="index" class="mapping-row">
+                    <div class="mapping-col">
+                      <input
+                        v-model="mapping.publicModel"
+                        placeholder="留空使用上游名称"
+                        class="mapping-input"
+                      >
+                    </div>
+                    <div class="mapping-col">
+                      <select
+                        v-model="mapping.upstreamModel"
+                        required
+                        class="mapping-select"
+                      >
+                        <option value="">选择上游模型</option>
+                        <option v-for="model in upstreamModels" :key="model.id" :value="model.id">
+                          {{ model.id }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="mapping-col-action">
+                      <button
+                        class="icon-button"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                        title="删除映射"
+                      >
+                        <Trash2 :size="16" />
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                <p v-if="!upstreamModels.length" class="mapper-hint">
+                  请先填写有效渠道配置并点击「获取模型」按钮。
+                </p>
               </div>
+            </div>
 
-              <p v-if="!upstreamModels.length" class="mapper-hint">
-                请先填写有效渠道配置并点击「从上游获取可用模型」按钮。
-              </p>
-            </fieldset>
-
-            <label style="flex-direction: row; align-items: center;"><input v-model="form.enabled" type="checkbox" style="width: auto; min-height: auto;"> 启用</label>
-            <button type="submit" :disabled="saving">{{ saving ? "保存中" : "保存渠道" }}</button>
+            <!-- 底部提交按钮 -->
+            <div class="form-footer">
+              <button type="submit" :disabled="saving" class="btn-submit">
+                {{ saving ? "保存中" : "保存渠道" }}
+              </button>
+            </div>
           </form>
         </div>
       </section>
@@ -559,6 +576,85 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Channel Form - Two Column Layout */
+.channel-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.section-title {
+  margin: 0;
+  padding-bottom: var(--space-3);
+  border-bottom: 2px solid var(--border-default);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.mapper-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+}
+
+.mapping-table-scroll {
+  flex: 1;
+  max-height: 400px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-right: var(--space-2);
+}
+
+.mapping-table-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.mapping-table-scroll::-webkit-scrollbar-track {
+  background: var(--bg-surface-elevated);
+  border-radius: 3px;
+}
+
+.mapping-table-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+
+.mapping-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-primary);
+}
+
+.form-footer {
+  grid-column: 1 / -1;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-submit {
+  min-width: 160px;
+  background: var(--brand-gradient);
+  color: #fff;
+  font-weight: 600;
+}
+
 /* Channel Mapping Cell */
 .channel-mapping-cell {
   min-width: 360px;
