@@ -132,10 +132,11 @@ async function syncChannelModelsRequest(channelId) {
   }
 
   // 从模型映射表格构建 model_mappings 数组
+  // 如果公开模型名称为空，则使用上游模型名称
   const modelMappingsPayload = modelMappings.value
-    .filter((m) => m.publicModel && m.upstreamModel)
+    .filter((m) => m.upstreamModel)  // 只要上游模型有值就保留
     .map((m) => ({
-      model: m.publicModel,
+      model: m.publicModel.trim() || m.upstreamModel,  // 公开名称为空则使用上游名称
       upstream_model: m.upstreamModel
     }));
 
@@ -491,7 +492,7 @@ onBeforeUnmount(() => {
 
             <fieldset class="model-mapper">
               <legend>模型映射</legend>
-              <p class="mapper-description">配置公开模型名称及其对应的上游实际模型，例如将 <code>gpt-4</code> 映射到 <code>gpt-4o</code>。</p>
+              <p class="mapper-description">配置公开模型名称及其对应的上游实际模型。公开名称留空时，默认使用上游模型名称。例如：<code>gpt-4</code> → <code>gpt-4o</code>。</p>
 
               <div class="mapper-actions">
                 <button class="secondary" type="button" @click="refreshUpstreamModels" :disabled="syncingModels">
@@ -514,8 +515,7 @@ onBeforeUnmount(() => {
                   <div class="mapping-col">
                     <input
                       v-model="mapping.publicModel"
-                      placeholder="例如: gpt-4"
-                      required
+                      placeholder="留空则使用上游名称"
                       class="mapping-input"
                     >
                   </div>
