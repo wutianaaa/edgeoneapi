@@ -373,104 +373,98 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="page" style="max-width: 1200px; margin: 0 auto;">
-    <header class="page-heading">
-      <div>
-        <p class="eyebrow">Conversation</p>
-        <h1>AI Chat</h1>
-        <p class="page-description">开发者对话工作台，快速测试模型和调试提示词。</p>
-      </div>
-      <div class="toolbar">
-        <span class="badge muted">{{ sessionCount }} 个会话</span>
-        <button class="secondary" type="button" @click="startNewSession" :disabled="sending">
+  <div class="chat-container">
+    <!-- 左侧会话列表 -->
+    <aside class="chat-sidebar">
+      <div class="chat-sidebar-header">
+        <button class="btn-new-chat" type="button" @click="startNewSession" :disabled="sending">
           <Plus :size="18" />
-          新会话
+          <span>新会话</span>
         </button>
       </div>
-    </header>
 
-    <div style="display: grid; grid-template-columns: 260px 1fr; gap: 24px; align-items: start;">
-      <aside class="panel" style="position: sticky; top: 100px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-          <h3>会话列表</h3>
+      <div class="chat-sessions">
+        <button
+          v-for="session in sessions"
+          :key="session.id"
+          class="session-item"
+          :class="{ active: session.id === currentSessionId }"
+          type="button"
+          @click="switchSession(session.id)"
+          :disabled="sending"
+        >
+          <MessageSquare :size="16" />
+          <span class="session-title">{{ session.title }}</span>
+        </button>
+      </div>
+
+      <div class="chat-sidebar-footer">
+        <span class="badge muted">{{ sessionCount }} 个会话</span>
+      </div>
+    </aside>
+
+    <!-- 右侧对话区域 -->
+    <main class="chat-main">
+      <!-- 顶部工具栏 -->
+      <header class="chat-header">
+        <div class="chat-header-left">
+          <h2>{{ activeSessionTitle }}</h2>
+          <span class="badge">{{ model }}</span>
         </div>
-        <div style="display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto;">
-          <button
-            v-for="session in sessions"
-            :key="session.id"
-            class="secondary"
-            :class="{ active: session.id === currentSessionId }"
-            type="button"
-            @click="switchSession(session.id)"
-            :disabled="sending"
-            style="justify-content: flex-start; text-align: left; min-height: 48px;"
-          >
-            {{ session.title }}
+        <div class="chat-header-right">
+          <button class="icon-button" type="button" @click="clearCurrentSession" :disabled="sending || !messages.length" title="清空会话">
+            <Trash2 :size="18" />
           </button>
         </div>
-      </aside>
+      </header>
 
-      <div class="panel" style="min-height: 600px; display: flex; flex-direction: column; gap: 16px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--border-default);">
+      <!-- 对话区域 -->
+      <div ref="conversationRef" class="chat-conversation">
+        <div v-if="!messages.length" class="chat-empty">
           <div>
-            <h2>{{ activeSessionTitle }}</h2>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="badge">{{ model }}</span>
-            <button class="secondary" type="button" @click="clearCurrentSession" :disabled="sending || !messages.length">
-              <Trash2 :size="16" />
-              清空
-            </button>
+            <MessageSquare :size="64" style="color: var(--text-muted); margin: 0 auto 24px;" />
+            <h3 style="margin-bottom: 12px;">开始对话</h3>
+            <p style="color: var(--text-secondary);">输入消息开始与 AI 对话</p>
           </div>
         </div>
 
-        <div ref="conversationRef" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 8px;">
-          <div v-if="!messages.length" style="display: grid; place-items: center; min-height: 300px; text-align: center;">
-            <div>
-              <MessageSquare :size="48" style="color: var(--text-muted); margin: 0 auto 16px;" />
-              <h3 style="margin-bottom: 8px;">开始对话</h3>
-              <p style="color: var(--text-secondary);">输入消息开始与 AI 对话</p>
-            </div>
-          </div>
-
-          <div v-for="(message, index) in messages" :key="index" style="display: flex; flex-direction: column; gap: 8px;">
-            <div
-              :style="{
-                alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
-                maxWidth: '80%',
-                padding: '12px 16px',
-                borderRadius: 'var(--radius-md)',
-                background: message.role === 'user' ? 'var(--brand-primary)' : 'var(--bg-surface-hover)',
-                color: message.role === 'user' ? '#000' : 'var(--text-primary)'
-              }"
-            >
-              <div v-html="renderMessage(message.content)" style="line-height: 1.6;"></div>
-              <div v-if="message.role === 'assistant' && message.stats?.total_ms" style="margin-top: 8px; font-size: 12px; opacity: 0.7;">
-                {{ formatDuration(message.stats.total_ms) }}
-              </div>
+        <div v-for="(message, index) in messages" :key="index" class="message-wrapper">
+          <div
+            class="message-bubble"
+            :class="message.role"
+          >
+            <div v-html="renderMessage(message.content)" class="message-content"></div>
+            <div v-if="message.role === 'assistant' && message.stats?.total_ms" class="message-meta">
+              {{ formatDuration(message.stats.total_ms) }}
             </div>
           </div>
         </div>
+      </div>
 
-        <div v-if="error" class="notice error">{{ error }}</div>
+      <!-- 错误提示 -->
+      <div v-if="error" class="chat-error">
+        <div class="notice error">{{ error }}</div>
+      </div>
 
-        <form @submit.prevent="sendMessage" style="display: flex; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border-default);">
+      <!-- 输入区域 -->
+      <div class="chat-composer">
+        <form @submit.prevent="sendMessage" class="composer-form">
           <textarea
             ref="composerRef"
             v-model="draft"
             rows="1"
-            placeholder="输入消息..."
+            placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"
             @keydown.enter.exact.prevent="sendMessage"
-            style="flex: 1; min-height: 44px; max-height: 120px; resize: vertical;"
+            class="composer-input"
           ></textarea>
-          <button type="submit" v-if="!sending" :disabled="!draft.trim()" style="min-width: 44px; padding: 0;">
+          <button type="submit" v-if="!sending" :disabled="!draft.trim()" class="btn-send">
             <ArrowUp :size="20" />
           </button>
-          <button type="button" v-else @click="stopGeneration" class="danger" style="min-width: 44px; padding: 0;">
+          <button type="button" v-else @click="stopGeneration" class="btn-stop">
             <Square :size="18" />
           </button>
         </form>
       </div>
-    </div>
-  </section>
+    </main>
+  </div>
 </template>
