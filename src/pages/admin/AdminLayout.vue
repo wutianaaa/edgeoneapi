@@ -117,69 +117,77 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="workbench-shell">
-    <header class="workbench-header">
-      <div class="workbench-header-inner">
-        <RouterLink class="workbench-brand" to="/chat">
-          <span class="workbench-brand-mark" aria-hidden="true"></span>
-          <span>EdgeOne AI</span>
+    <!-- 侧边栏 -->
+    <aside class="workbench-sidebar">
+      <!-- 品牌 Logo -->
+      <div class="sidebar-brand">
+        <span class="sidebar-brand-mark" aria-hidden="true"></span>
+        <span class="sidebar-brand-text">EdgeOne AI</span>
+      </div>
+
+      <!-- 导航菜单 -->
+      <nav class="sidebar-nav" aria-label="Primary navigation">
+        <RouterLink
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          class="sidebar-nav-item"
+        >
+          <component :is="item.icon" :size="20" />
+          <span>{{ item.label }}</span>
         </RouterLink>
+      </nav>
 
-        <nav class="workbench-nav" aria-label="Primary navigation">
-          <RouterLink
-            v-for="item in navItems"
-            :key="item.to"
-            :to="item.to"
-            class="workbench-nav-item"
-          >
-            <component :is="item.icon" :size="16" />
-            <span>{{ item.label }}</span>
-          </RouterLink>
-        </nav>
+      <!-- 底部操作 -->
+      <div class="sidebar-footer">
+        <button
+          class="sidebar-action"
+          type="button"
+          @click="toggleTheme"
+          :aria-label="theme === 'light' ? '切换到深色模式' : '切换到浅色模式'"
+        >
+          <Moon v-if="theme === 'light'" :size="20" />
+          <Sun v-else :size="20" />
+          <span>{{ theme === 'light' ? '浅色' : '深色' }}</span>
+        </button>
 
-        <div style="display: flex; align-items: center; gap: 12px; margin-left: auto;">
-          <button
-            class="icon-button"
-            type="button"
-            @click="toggleTheme"
-            :aria-label="theme === 'light' ? '切换到深色模式' : '切换到浅色模式'"
-          >
-            <Moon v-if="theme === 'light'" :size="18" />
-            <Sun v-else :size="18" />
+        <div v-if="!authenticated" class="sidebar-user">
+          <button class="sidebar-action" type="button" @click="openAdminSurface">
+            <KeyRound :size="20" />
+            <span>管理员</span>
           </button>
+        </div>
 
-          <button v-if="!authenticated" class="secondary" type="button" @click="openAdminSurface">
-            <KeyRound :size="16" />
-            Admin
+        <div v-else class="sidebar-user">
+          <div class="sidebar-user-info">
+            <div class="sidebar-avatar">{{ username.charAt(0).toUpperCase() }}</div>
+            <span class="sidebar-username">{{ username }}</span>
+          </div>
+          <button class="sidebar-logout" type="button" @click="logout" title="退出登录">
+            <LogOut :size="18" />
           </button>
-
-          <template v-else>
-            <span class="badge">{{ username }}</span>
-            <button class="secondary" type="button" @click="logout">
-              <LogOut :size="16" />
-              退出
-            </button>
-          </template>
         </div>
       </div>
-    </header>
+    </aside>
 
+    <!-- 主内容区域 -->
     <main class="workbench-main">
       <div v-if="requiresAdmin && checkingAuth" class="loading-state">
         <Activity :size="32" class="spinning" />
         <p>正在校验管理会话...</p>
       </div>
 
-      <div v-else-if="requiresAdmin && !authenticated" style="min-height: 60vh; display: grid; place-items: center;">
-        <div class="panel" style="width: min(480px, 100%); gap: 24px;">
-          <div>
+      <div v-else-if="requiresAdmin && !authenticated" class="auth-container">
+        <div class="auth-panel">
+          <div class="auth-header">
             <p class="eyebrow">Protected</p>
-            <h1 style="margin-top: 8px;">管理员登录</h1>
-            <p class="page-description" style="margin-top: 12px;">
+            <h1>管理员登录</h1>
+            <p class="auth-description">
               需要管理员权限才能访问此页面
             </p>
           </div>
 
-          <form @submit.prevent="login" style="display: flex; flex-direction: column; gap: 16px;">
+          <form @submit.prevent="login" class="auth-form">
             <label>
               用户名
               <input v-model="username" autocomplete="username" required placeholder="admin">
