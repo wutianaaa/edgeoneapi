@@ -944,6 +944,35 @@ tbody tr:hover {
   gap: var(--space-2);
 }
 
+.model-select {
+  min-width: 160px;
+  height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.model-select:hover:not(:disabled) {
+  border-color: var(--brand-primary);
+}
+
+.model-select:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.model-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .chat-conversation {
   flex: 1;
   overflow-y: auto;

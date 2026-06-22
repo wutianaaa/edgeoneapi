@@ -172,6 +172,10 @@ function focusComposer() {
   });
 }
 
+function saveModelPreference() {
+  localStorage.setItem("aiapi_chat_model", model.value);
+}
+
 async function loadModels() {
   loadingModels.value = true;
   error.value = "";
@@ -409,9 +413,12 @@ onMounted(() => {
       <header class="chat-header">
         <div class="chat-header-left">
           <h2>{{ activeSessionTitle }}</h2>
-          <span class="badge">{{ model }}</span>
         </div>
         <div class="chat-header-right">
+          <select v-model="model" @change="saveModelPreference" :disabled="sending" class="model-select">
+            <option v-if="loadingModels" disabled>加载中...</option>
+            <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
+          </select>
           <button class="icon-button" type="button" @click="clearCurrentSession" :disabled="sending || !messages.length" title="清空会话">
             <Trash2 :size="18" />
           </button>
