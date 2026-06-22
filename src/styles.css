@@ -75,20 +75,43 @@
   --glow-success: 0 0 20px rgba(16, 185, 129, 0.3);
 }
 
-/* Light mode (optional fallback) */
+/* Light mode */
 html.light {
-  --bg-app: #F8FAFC;
-  --bg-surface: #FFFFFF;
-  --bg-surface-hover: #F1F5F9;
-  --bg-surface-subtle: #F8FAFC;
-  --bg-overlay: rgba(15, 23, 42, 0.6);
+  --bg-app: #f0fdf4;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #dcfce7;
+  --bg-surface-elevated: #f7fee7;
+  --bg-overlay: rgba(22, 101, 52, 0.15);
 
-  --text-primary: #0F172A;
-  --text-secondary: #475569;
-  --text-muted: #94A3B8;
+  --text-primary: #14532d;
+  --text-secondary: #166534;
+  --text-muted: #16a34a;
+  --text-inverse: #f0fdf4;
 
-  --border-default: #E2E8F0;
-  --border-subtle: #F1F5F9;
+  --border-default: #bbf7d0;
+  --border-subtle: #d1fae5;
+  --border-hover: #86efac;
+
+  /* Brand Colors - Green theme for light mode */
+  --brand-primary: #16a34a;
+  --brand-secondary: #15803d;
+  --brand-gradient: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  --brand-accent: #10b981;
+
+  --color-success: #16a34a;
+  --color-warning: #f59e0b;
+  --color-error: #dc2626;
+  --color-info: #0284c7;
+
+  /* Shadows - Lighter for light mode */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  /* Glow Effects - Green for light mode */
+  --glow-primary: 0 0 20px rgba(22, 163, 74, 0.2);
+  --glow-success: 0 0 20px rgba(22, 163, 74, 0.2);
 }
 
 /* Reset */
