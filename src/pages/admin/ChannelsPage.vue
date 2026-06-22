@@ -426,7 +426,7 @@ onBeforeUnmount(() => {
             <th>基础 URL</th>
             <th>状态</th>
             <th>权重</th>
-            <th>模型</th>
+            <th>模型映射</th>
             <th></th>
           </tr>
         </thead>
@@ -437,21 +437,22 @@ onBeforeUnmount(() => {
             <td class="mono">{{ channel.base_url }}</td>
             <td><span class="badge" :class="{ on: channel.enabled, off: !channel.enabled }">{{ channel.enabled ? "启用" : "停用" }}</span></td>
             <td>{{ channel.weight }}</td>
-            <td class="channel-model-cell">
-              <div v-if="channelModelCount(channel.id)" class="channel-model-summary">
-                <span class="badge muted">{{ channelModelCount(channel.id) }} 个</span>
-                <div class="model-chip-list">
-                  <span
-                    v-for="model in channelModels(channel.id)"
-                    :key="model.model"
-                    class="model-chip"
-                    :title="modelLabel(model)"
-                  >
-                    {{ modelLabel(model) }}
-                  </span>
+            <td class="channel-mapping-cell">
+              <div v-if="channelModelCount(channel.id)" class="mapping-list">
+                <div
+                  v-for="model in channelModels(channel.id)"
+                  :key="model.model"
+                  class="mapping-item"
+                >
+                  <span class="mapping-public">{{ model.model }}</span>
+                  <span class="mapping-arrow">→</span>
+                  <span class="mapping-upstream">{{ model.upstream_model || model.model }}</span>
+                </div>
+                <div class="mapping-count">
+                  <span class="badge muted">共 {{ channelModelCount(channel.id) }} 个映射</span>
                 </div>
               </div>
-              <span v-else class="badge muted">暂无模型</span>
+              <span v-else class="badge muted">暂无映射</span>
             </td>
             <td style="width: 1%; white-space: nowrap;">
               <button class="icon-button" type="button" @click="openEdit(channel)" aria-label="编辑渠道"><Pencil :size="17" /></button>
@@ -558,6 +559,54 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Channel Mapping Cell */
+.channel-mapping-cell {
+  min-width: 360px;
+  max-width: 500px;
+}
+
+.mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.mapping-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+
+.mapping-public {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mapping-arrow {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.mapping-upstream {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapping-count {
+  margin-top: var(--space-1);
+}
+
 .channel-model-cell {
   min-width: 260px;
   max-width: 420px;
