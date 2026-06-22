@@ -4,6 +4,7 @@ import AdminLayout from "./pages/admin/AdminLayout.vue";
 import ChannelsPage from "./pages/admin/ChannelsPage.vue";
 import UsersPage from "./pages/admin/UsersPage.vue";
 import HealthPage from "./pages/admin/HealthPage.vue";
+import { getAdminSession } from "./services/api.js";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -58,6 +59,27 @@ const router = createRouter({
     { path: "/m/health", redirect: "/health" },
     { path: "/:pathMatch(.*)*", redirect: "/chat" }
   ]
+});
+
+// 路由守卫：验证管理员权限
+router.beforeEach(async (to, from, next) => {
+  // 检查是否需要管理员权限
+  if (to.meta.requiresAdmin) {
+    try {
+      // 验证管理员会话
+      await getAdminSession();
+      next();
+    } catch (error) {
+      // 未授权，跳转到聊天页面
+      console.warn("Admin authentication required, redirecting to chat");
+      next({
+        name: "chat",
+        query: { redirect: to.fullPath }
+      });
+    }
+  } else {
+    next();
+  }
 });
 
 export default router;
